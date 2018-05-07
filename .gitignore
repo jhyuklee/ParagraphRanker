@@ -1,0 +1,9 @@
+*.pyc
+*.swp
+*.DS_Store
+*~
+data/
+*.tar.gz
+*.egg-info
+results/
+pipeline/predictions*
