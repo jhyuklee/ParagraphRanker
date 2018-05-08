@@ -26,8 +26,8 @@ from functools import partial
 from root.retriever import utils
 from root import tokenizers
 from root.retriever.doc_db import DocDB
-from root.docencoder.data import ReaderDataset, SortedBatchSampler
-from root.docencoder.vector import ae_dev_batchify
+from root.ranker.data import ReaderDataset, SortedBatchSampler
+from root.ranker.vector import ae_dev_batchify
 from root.reader.model import DocReader
 from root.reader.data import ReaderDataset as ReaderDataset2
 from root.reader.data import SortedBatchSampler as SortedBatchSampler2
