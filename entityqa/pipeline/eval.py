@@ -100,14 +100,14 @@ def evaluate(dataset_file, prediction_file, regex=False, top_k=None, alpha=1.0, 
             # Merge scores
             merged_top = dict(sorted_atop)
             for answer, score in dict(sorted_ptop).items():
-                score = 1
+                # score = 1
                 if answer in merged_top:
                     merged_top[answer] *= (score)
                 else:
                     merged_top[answer] = score
 
             for answer, score in dict(sorted_dtop).items():
-                score = 1
+                # score = 1
                 if answer in merged_top:
                     merged_top[answer] *= (score)
                 else:

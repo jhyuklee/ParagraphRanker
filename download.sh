@@ -8,11 +8,7 @@
 set -e
 
 # Configure download location
-DOWNLOAD_PATH="$DRQA_DATA"
-if [ "$DRQA_DATA" == "" ]; then
-    echo "DRQA_DATA not set; downloading to default path ('data')."
-    DOWNLOAD_PATH="./data"
-fi
+DOWNLOAD_PATH="./data"
 
 # Get AWS hosted data
 DOWNLOAD_PATH_TAR="$DOWNLOAD_PATH.tar.gz"
@@ -26,7 +22,7 @@ tar -xvf "$DOWNLOAD_PATH_TAR"
 # Remove tar ball
 rm "$DOWNLOAD_PATH_TAR"
 
-# Get externally hosted data
+# Get externally hosted data (should be changed)
 DATASET_PATH="$DOWNLOAD_PATH/datasets"
 
 # Get SQuAD train
@@ -56,4 +52,4 @@ rm "$DATASET_PATH/WebQuestions-test.json"
 wget -O "$DATASET_PATH/freebase-entities.txt.gz" "https://s3.amazonaws.com/fair-data/drqa/freebase-entities.txt.gz"
 gzip -d "$DATASET_PATH/freebase-entities.txt.gz"
 
-echo "DrQA download done!"
+echo "EntityQA download done!"
