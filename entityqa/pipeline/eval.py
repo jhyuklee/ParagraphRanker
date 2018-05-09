@@ -11,8 +11,8 @@ import json
 import operator
 import numpy as np
 from collections import Counter
-from retriever.utils import normalize
-from reader.utils import (
+from root.retriever.utils import normalize
+from root.reader.utils import (
     exact_match_score,
     f1_score,
     regex_match_score,
@@ -100,14 +100,14 @@ def evaluate(dataset_file, prediction_file, regex=False, top_k=None, alpha=1.0, 
             # Merge scores
             merged_top = dict(sorted_atop)
             for answer, score in dict(sorted_ptop).items():
-                # score = 1
+                score = 1
                 if answer in merged_top:
                     merged_top[answer] *= (score)
                 else:
                     merged_top[answer] = score
 
             for answer, score in dict(sorted_dtop).items():
-                # score = 1
+                score = 1
                 if answer in merged_top:
                     merged_top[answer] *= (score)
                 else:

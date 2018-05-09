@@ -23,16 +23,16 @@ from multiprocessing import Pool as ProcessPool
 from multiprocessing.util import Finalize
 from functools import partial
 
-import tokenizers
-from retriever import utils
-from retriever.doc_db import DocDB
-from ranker.model import DocumentEncoder
-from ranker.data import ReaderDataset, SortedBatchSampler
-from ranker.vector import ae_dev_batchify
-from reader.model import DocReader
-from reader.data import ReaderDataset as ReaderDataset2
-from reader.data import SortedBatchSampler as SortedBatchSampler2
-from reader.vector import batchify
+from root import tokenizers
+from root.retriever import utils
+from root.retriever.doc_db import DocDB
+from root.ranker.model import DocumentEncoder
+from root.ranker.data import ReaderDataset, SortedBatchSampler
+from root.ranker.vector import ae_dev_batchify
+from root.reader.model import DocReader
+from root.reader.data import ReaderDataset as ReaderDataset2
+from root.reader.data import SortedBatchSampler as SortedBatchSampler2
+from root.reader.vector import batchify
 
 
 logger = logging.getLogger(__name__)

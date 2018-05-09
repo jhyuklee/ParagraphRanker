@@ -16,26 +16,26 @@ from functools import partial
 from pathlib import PosixPath
 from os.path import expanduser
 
-import tokenizers
-from ranker import data, utils
-from ranker.model import DocumentEncoder
-from pipeline import QAPipeline
-from retriever.doc_db import DocDB
-from retriever.tfidf_doc_ranker import TfidfDocRanker
+from root import tokenizers
+from root.ranker import data, utils
+from root.ranker.model import DocumentEncoder
+from root.pipeline.pipeline import QAPipeline
+from root.retriever.doc_db import DocDB
+from root.retriever.tfidf_doc_ranker import TfidfDocRanker
 
-import retriever.utils as r_utils
+import root.retriever.utils as r_utils
 
 
 MULTIQA_PATH = (
-    os.path.join(PosixPath(__file__).absolute().parents[1].as_posix(), 'data'),
-    os.path.join(PosixPath(__file__).absolute().parents[1].as_posix(), 'pipeline')
+    os.path.join(PosixPath(__file__).absolute().parents[2].as_posix(), 'data'),
+    PosixPath(__file__).absolute().parents[1].as_posix()
 )
 
 logger = logging.getLogger()
 
 # Defaults
 DATA_DIR = os.path.join(MULTIQA_PATH[0], 'datasets')
-MODEL_DIR = os.path.join(MULTIQA_PATH[1], 'results/')
+MODEL_DIR = os.path.join(MULTIQA_PATH[1], 'pipeline/results/')
 EMBED_DIR = os.path.join(expanduser("~"), 'common/glove/')
 READER_PATH = os.path.join(MULTIQA_PATH[1], 
     # 'reader/results/20180323-a705bbb5.mdl') # pretrained
@@ -333,8 +333,8 @@ def main(args):
     batches_targets = [answers[i: i + args.predict_batch_size]
                        for i in range(0, len(answers), args.predict_batch_size)]
     closest_pars = []
-    with open(os.path.join(MULTIQA_PATH[1], 
-              'results/predictions_{}.json'.format(args.model_name)), 'w') as outf:
+    with open(os.path.join(MULTIQA_PATH[1], MODEL_DIR,
+              'predictions_{}.json'.format(args.model_name)), 'w') as outf:
         for i, (batch, target) in enumerate(zip(batches, batches_targets)):
             logger.info(
                 '-' * 25 + ' Batch %d/%d ' % (i + 1, len(batches)) + '-' * 25
