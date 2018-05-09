@@ -17,7 +17,7 @@ import scipy.sparse as sp
 
 from sklearn.utils import murmurhash3_32
 from collections import Counter
-from data import Dictionary
+from root.ranker.data import Dictionary
 
 logger = logging.getLogger(__name__)
 

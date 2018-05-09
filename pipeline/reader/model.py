@@ -14,7 +14,7 @@ import logging
 import copy
 
 from torch.autograd import Variable
-from config import override_model_args
+from root.reader.config import override_model_args
 from root.reader.rnn_reader import RnnDocReader
 
 logger = logging.getLogger(__name__)

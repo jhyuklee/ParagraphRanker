@@ -14,8 +14,8 @@ import logging
 import copy
 
 from torch.autograd import Variable
-from config import override_model_args
-from rnn_encoder import RnnEncoder
+from root.ranker.config import override_model_args
+from root.ranker.rnn_encoder import RnnEncoder
 
 logger = logging.getLogger(__name__)
 

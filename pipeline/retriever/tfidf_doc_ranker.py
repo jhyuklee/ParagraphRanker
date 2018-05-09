@@ -14,7 +14,7 @@ import scipy.sparse as sp
 from multiprocessing.pool import ThreadPool
 from functools import partial
 
-import utils
+import root.retriever.utils
 from root import tokenizers
 
 

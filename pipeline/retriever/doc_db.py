@@ -7,7 +7,7 @@
 """Documents, in a sqlite database."""
 
 import sqlite3
-import utils
+import root.retriever.utils as utils
 
 
 class DocDB(object):

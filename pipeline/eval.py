@@ -128,19 +128,19 @@ def evaluate(dataset_file, prediction_file, regex=False, top_k=None, alpha=1.0, 
     for i in range(len(predictions)):
         match_fn = regex_match_score if regex else exact_match_score
         single_em = 0
-        single_f1 = 0
+        # single_f1 = 0
         assert len(predictions[i]) == 1
         for single_pred in predictions[i]:
             single_em = metric_max_over_ground_truths(
                 match_fn, single_pred, answers[i]
             )
-            single_f1 = metric_max_over_ground_truths(
-                f1_score, single_pred, answers[i]
-            )
+            # single_f1 = metric_max_over_ground_truths(
+            #     f1_score, single_pred, answers[i]
+            # )
         assert single_em == 1 or single_em == 0
-        assert single_f1 >= 0 and single_f1 <= 1
+        # assert single_f1 >= 0 and single_f1 <= 1
         exact_match += single_em
-        f1 += single_f1
+        # f1 += single_f1
 
         '''
         if single_em > 0:
@@ -152,14 +152,14 @@ def evaluate(dataset_file, prediction_file, regex=False, top_k=None, alpha=1.0, 
         '''
     total = len(predictions)
     exact_match = 100.0 * exact_match / total
-    f1 = 100.0 * f1 / total
-    print({'exact_match': exact_match, 'f1': f1})
+    # f1 = 100.0 * f1 / total
+    print({'exact_match': exact_match})
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # parser.add_argument('--dataset', type=str, default='../data/datasets/SQuAD-v1.1-dev.txt')
-    parser.add_argument('--dataset', type=str, default='../data/datasets/CuratedTrec-test.txt')
+    parser.add_argument('--dataset', type=str, default='data/datasets/CuratedTrec-test.txt')
     # parser.add_argument('--dataset', type=str, default='../data/datasets/WebQuestions-test.txt')
     # parser.add_argument('--dataset', type=str, default='../data/datasets/WikiMovies-test.txt')
     parser.add_argument('--predictions', type=str, default='predictions.json')

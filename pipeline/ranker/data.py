@@ -12,7 +12,7 @@ import unicodedata
 
 from torch.utils.data import Dataset
 from torch.utils.data.sampler import Sampler
-from vector import autoencoder_data
+from root.ranker.vector import autoencoder_data
 
 logger = logging.getLogger(__name__)
 

@@ -8,7 +8,7 @@
 
 import torch
 import torch.nn as nn
-import layers
+import root.ranker.layers as layers
 
 
 # ------------------------------------------------------------------------------

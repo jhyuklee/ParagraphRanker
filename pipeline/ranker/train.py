@@ -252,7 +252,8 @@ def add_train_args(parser):
     save_load = parser.add_argument_group('Saving/Loading')
     save_load.add_argument('--checkpoint', type='bool', default=False,
                            help='Save model + optimizer state after each epoch')
-    save_load.add_argument('--pretrained', type=str, default=RANKER_PATH,
+    save_load.add_argument('--pretrained', type=str, default=None,
+    # save_load.add_argument('--pretrained', type=str, default=RANKER_PATH,
                            help='Path to a pretrained model to warm-start with')
     save_load.add_argument('--expand-dictionary', type='bool', default=False,
                            help='Expand dictionary of pretrained model to ' +
@@ -606,6 +607,7 @@ def main(args):
     docs, qs = encode_docs_qs(args, dev_loader, model, stats, mode='dev')
     result = rank_docs(args, docs, qs, stats, mode='dev')
 
+    '''
     # --------------------------------------------------------------------------
     # EVAL WITH DOCUMENT ENCODER
     start = time.time()
@@ -640,11 +642,9 @@ def main(args):
                        fixed_candidates=candidates)
 
     logger.info('Ranking...')
-    '''
-    closest_pars = ranker.batch_closest_docs(
-        questions, k=args.n_docs, num_workers=None
-    )
-    '''
+    # closest_pars = ranker.batch_closest_docs(
+    #    questions, k=args.n_docs, num_workers=None
+    # )
     # Batcify questions and feed for ranking
     # qas = list(zip(questions, answers))
     # random.shuffle(qas)
@@ -704,6 +704,7 @@ def main(args):
     )
 
     print(stats)
+    '''
 
 
 if __name__ == '__main__':
