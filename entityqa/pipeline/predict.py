@@ -21,7 +21,6 @@ from root.ranker import data, utils
 from root.ranker.model import DocumentEncoder
 from root.pipeline.pipeline import QAPipeline
 from root.retriever.doc_db import DocDB
-from root.retriever.tfidf_doc_ranker import TfidfDocRanker
 
 import root.retriever.utils as r_utils
 
@@ -35,17 +34,17 @@ logger = logging.getLogger()
 
 # Defaults
 DATA_DIR = os.path.join(MULTIQA_PATH[0], 'datasets')
-MODEL_DIR = os.path.join(MULTIQA_PATH[1], 'pipeline/results/')
+PIPELINE_DIR = os.path.join(MULTIQA_PATH[1], 'pipeline/results/')
 EMBED_DIR = os.path.join(expanduser("~"), 'common/glove/')
 READER_PATH = os.path.join(MULTIQA_PATH[1], 
-    # 'reader/results/20180323-a705bbb5.mdl') # pretrained
+    'reader/results/20180323-a705bbb5.mdl') # pretrained
     # 'reader/results/20180402-20e74b70.mdl') # SQuAD finetuned (v0.2)
     # 'reader/results/20180412-e32835b0.mdl') # TREC finetuned (v0.2)
     # 'reader/results/20180412-d8e66822.mdl') # WebQ finetuned (v0.2)
     # 'reader/results/20180412-69e73c93.mdl') # WikiM finetuned (v0.2)
 
     # 'reader/results/20180402-20e74b70.mdl') # SQuAD finetuned (v0.1)
-    'reader/results/20180402-b6765c55.mdl') # TREC finetuned (v0.1)
+    # 'reader/results/20180402-b6765c55.mdl') # TREC finetuned (v0.1)
     # 'reader/results/20180402-14e759b0.mdl') # WebQ finetuned (v0.1)
     # 'reader/results/20180402-018b239a.mdl') # WikiM finetuned (v0.1)
 
@@ -60,8 +59,8 @@ DOC_DB_PATH = os.path.join(MULTIQA_PATH[0], 'wikipedia/docs.db')
 # QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/WebQuestions-valid.txt')
 # QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/WikiMovies-valid.txt')
 
-# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/SQuAD-v1.1-dev.txt')
-QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/CuratedTrec-test.txt')
+QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/SQuAD-v1.1-dev.txt')
+# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/CuratedTrec-test.txt')
 # QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/WebQuestions-test.txt')
 # QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/WikiMovies-test.txt')
 RANKER_PATH = os.path.join(MULTIQA_PATH[1], 
@@ -98,18 +97,12 @@ def add_train_args(parser):
     runtime.add_argument('--random-seed', type=int, default=1013,
                          help=('Random seed for all numpy/torch/cuda '
                                'operations (for reproducibility)'))
-    runtime.add_argument('--num-epochs', type=int, default=40,
-                         help='Train data iterations')
-    runtime.add_argument('--batch-size', type=int, default=20,
-                         help='Batch size for training')
-    runtime.add_argument('--test-batch-size', type=int, default=128,
-                         help='Batch size during validation/testing')
     runtime.add_argument('--predict-batch-size', type=int, default=100,
                          help='Batch size for question prediction')
 
     # Files
     files = parser.add_argument_group('Filesystem')
-    files.add_argument('--model-dir', type=str, default=MODEL_DIR,
+    files.add_argument('--model-dir', type=str, default=PIPELINE_DIR,
                        help='Directory for saved models/checkpoints/logs')
     files.add_argument('--model-name', type=str, default='',
                        help='Unique model identifier (.mdl, .txt, .checkpoint)')
@@ -333,7 +326,7 @@ def main(args):
     batches_targets = [answers[i: i + args.predict_batch_size]
                        for i in range(0, len(answers), args.predict_batch_size)]
     closest_pars = []
-    with open(os.path.join(MULTIQA_PATH[1], MODEL_DIR,
+    with open(os.path.join(MULTIQA_PATH[1], args.model_dir,
               'predictions_{}.json'.format(args.model_name)), 'w') as outf:
         for i, (batch, target) in enumerate(zip(batches, batches_targets)):
             logger.info(
