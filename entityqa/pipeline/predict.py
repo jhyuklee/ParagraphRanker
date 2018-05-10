@@ -18,7 +18,6 @@ from os.path import expanduser
 
 from root import tokenizers
 from root.ranker import data, utils
-from root.ranker.model import DocumentEncoder
 from root.pipeline.pipeline import QAPipeline
 from root.retriever.doc_db import DocDB
 import root.retriever.utils as r_utils
@@ -284,7 +283,7 @@ def get_score(answer_doc, match):
 def main(args):
     # Read query data
     start = time.time()
-    logger.info('Reading data ...')
+    logger.info('Reading query data {}'.format(args.query_data))
     questions = []
     answers = []
     for line in open(args.query_data):
@@ -323,7 +322,7 @@ def main(args):
     # Predict and record results
     logger.info('Predicting...')
     closest_pars = []
-    with open(args.pred_file), 'w') as pred_f:
+    with open(args.pred_file, 'w') as pred_f:
         for i, (batch, target) in enumerate(zip(batches, batches_targets)):
             logger.info(
                 '-' * 25 + ' Batch %d/%d ' % (i + 1, len(batches)) + '-' * 25

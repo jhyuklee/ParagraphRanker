@@ -76,7 +76,7 @@ def vectorize(ex, model, single_answer=False):
     return document, features, question, start, end, ex['id']
 
 
-def batchify(batch):
+def reader_batchify(batch):
     """Gather a batch of individual examples into one batch."""
     NUM_INPUTS = 3
     NUM_TARGETS = 2

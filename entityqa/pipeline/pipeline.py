@@ -25,14 +25,16 @@ from functools import partial
 
 from root import tokenizers
 from root.retriever import utils
+from root.retriever.tfidf_doc_ranker import TfidfDocRanker
 from root.retriever.doc_db import DocDB
-from root.ranker.model import DocumentEncoder
-from root.ranker.data import ReaderDataset, SortedBatchSampler
-from root.ranker.vector import ae_dev_batchify
+
+from root.ranker.model import ParagraphRanker
+from root.ranker.data import RankerDataset, RankerBatchSampler
+from root.ranker.vector import ranker_dev_batchify
+
 from root.reader.model import DocReader
-from root.reader.data import ReaderDataset as ReaderDataset2
-from root.reader.data import SortedBatchSampler as SortedBatchSampler2
-from root.reader.vector import batchify
+from root.reader.data import ReaderDataset, ReaderBatchSampler
+from root.reader.vector import reader_batchify
 
 
 logger = logging.getLogger(__name__)
@@ -72,130 +74,44 @@ class QAPipeline(object):
                  fixed_candidates=None):
         """
         Args:
-            tfidf_path: path to saved model file
             strict: fail on empty queries or continue (and return empty result)
         """
-        # Load from disk
-        logger.info('Loading %s' % retriever_path)
-        matrix, metadata = utils.load_sparse_csr(retriever_path)
-        self.doc_mat = matrix
-        self.ngrams = metadata['ngram']
-        self.hash_size = metadata['hash_size']
-        self.tokenizer = tokenizers.get_class(metadata['tokenizer'])()
-        self.doc_freqs = metadata['doc_freqs'].squeeze()
-        self.doc_dict = metadata['doc_dict']
-        self.num_docs = len(self.doc_dict[0])
-        self.strict = strict
-        
         # Manually set
+        # TODO: Pass args from predict.py
         self.max_loaders = 5
         self.cuda = True
         self.batch_size = 64
+        self.fixed_candidates = fixed_candidates
 
-        logger.info('Loading pretrained ranker...')
-        self.ranker = DocumentEncoder.load(ranker_name)
-        self.ranker.cuda()
+        # Load retriever
+        self.retriever = TfidfDocRanker(retriever_path) 
+
+        # Load pretrained ranker
+        self.ranker = ParagraphRanker.load(ranker_path)
+        if self.cuda:
+            self.ranker.cuda()
         self.ranker.init_optimizer()
 
-        logger.info('Initializing tokenizers and document retrievers...')
-        # tok_class = tokenizers.CoreNLPTokenizer
+        # Load pretrained reader
+        self.reader = DocReader.load(reader_path, normalize=False)
+        if self.cuda:
+            self.reader.cuda()
+        self.reader.init_optimizer()
+
+        logger.info('Initializing tokenizers...')
         tok_class = tokenizers.SimpleTokenizer
         annotators = tokenizers.get_annotators_for_model(self.ranker)
         tok_opts = {'annotators': annotators}
-
         db_config = {'options': {'db_path': db_path}}
         db_class = db_config.get('class', DocDB)
         db_opts = db_config.get('options', {})
 
-        self.fixed_candidates = fixed_candidates
         self.num_workers = 5
         self.processes = ProcessPool(
             self.num_workers,
             initializer=init,
             initargs=(tok_class, tok_opts, db_class, db_opts, self.fixed_candidates)
         )
-
-        logger.info('Loading pretrained reader...')
-        self.reader = DocReader.load(reader_name, normalize=False)
-        self.reader.cuda()
-        self.reader.init_optimizer()
-
-
-    def get_doc_index(self, doc_id):
-        """Convert doc_id --> doc_index"""
-        return self.doc_dict[0][doc_id]
-
-    def get_doc_id(self, doc_index):
-        """Convert doc_index --> doc_id"""
-        return self.doc_dict[1][doc_index]
-
-    def closest_docs(self, query, k=1):
-        """Closest docs by dot product between query and documents
-        in tfidf weighted word vector space.
-        """
-        spvec = self.text2spvec(query)
-        res = spvec * self.doc_mat
-
-        if len(res.data) <= k:
-            o_sort = np.argsort(-res.data)
-        else:
-            o = np.argpartition(-res.data, k)[0:k]
-            o_sort = o[np.argsort(-res.data[o])]
-
-        doc_scores = res.data[o_sort]
-        doc_ids = [self.get_doc_id(i) for i in res.indices[o_sort]]
-        return doc_ids, doc_scores
-
-    def batch_closest_docs(self, queries, k=1, num_workers=None):
-        """Process a batch of closest_docs requests multithreaded.
-        Note: we can use plain threads here as scipy is outside of the GIL.
-        """
-        with ThreadPool(num_workers) as threads:
-            closest_docs = partial(self.closest_docs, k=k)
-            results = threads.map(closest_docs, queries)
-        return results
-
-    def parse(self, query):
-        """Parse the query into tokens (either ngrams or tokens)."""
-        tokens = self.tokenizer.tokenize(query)
-        return tokens.ngrams(n=self.ngrams, uncased=True,
-                             filter_fn=utils.filter_ngram)
-
-    def text2spvec(self, query):
-        """Create a sparse tfidf-weighted word vector from query.
-
-        tfidf = log(tf + 1) * log((N - Nt + 0.5) / (Nt + 0.5))
-        """
-        # Get hashed ngrams
-        words = self.parse(utils.normalize(query))
-        wids = [utils.hash(w, self.hash_size) for w in words]
-
-        if len(wids) == 0:
-            if self.strict:
-                raise RuntimeError('No valid word in: %s' % query)
-            else:
-                logger.warning('No valid word in: %s' % query)
-                return sp.csr_matrix((1, self.hash_size))
-
-        # Count TF
-        wids_unique, wids_counts = np.unique(wids, return_counts=True)
-        tfs = np.log1p(wids_counts)
-
-        # Count IDF
-        Ns = self.doc_freqs[wids_unique]
-        idfs = np.log((self.num_docs - Ns + 0.5) / (Ns + 0.5))
-        idfs[idfs < 0] = 0
-
-        # TF-IDF
-        data = np.multiply(tfs, idfs)
-
-        # One row, sparse csr matrix
-        indptr = np.array([0, len(wids_unique)])
-        spvec = sp.csr_matrix(
-            (data, wids_unique, indptr), shape=(1, self.hash_size)
-        )
-
-        return spvec
 
     def _split_doc(self, doc):
         """Given a doc, split it into chunks (by paragraph)."""
@@ -215,10 +131,10 @@ class QAPipeline(object):
         if len(curr) > 0:
             yield ' '.join(curr)
 
-    def _get_encoder_loader(self, data, num_loaders):
+    def _get_ranker_loader(self, data, num_loaders):
         """Return a pytorch data iterator for provided examples."""
-        dataset = ReaderDataset(data, self.ranker, 1, 1000)
-        sampler = SortedBatchSampler(
+        dataset = RankerDataset(data, self.ranker, 1, 1000)
+        sampler = RankerBatchSampler(
             dataset.lengths(),
             self.batch_size,
             shuffle=False
@@ -228,7 +144,7 @@ class QAPipeline(object):
             batch_size=self.batch_size,
             sampler=sampler,
             num_workers=num_loaders,
-            collate_fn=ae_dev_batchify,
+            collate_fn=ranker_dev_batchify,
             pin_memory=self.cuda,
         )
 
@@ -236,8 +152,8 @@ class QAPipeline(object):
 
     def _get_reader_loader(self, data, num_loaders):
         """Return a pytorch data iterator for provided examples."""
-        dataset = ReaderDataset2(data, self.reader)
-        sampler = SortedBatchSampler2(
+        dataset = ReaderDataset(data, self.reader)
+        sampler = ReaderBatchSampler(
             dataset.lengths(),
             self.batch_size,
             shuffle=False
@@ -247,7 +163,7 @@ class QAPipeline(object):
             batch_size=self.batch_size,
             sampler=sampler,
             num_workers=num_loaders,
-            collate_fn=batchify,
+            collate_fn=reader_batchify,
             pin_memory=self.cuda,
         )
 
@@ -260,41 +176,14 @@ class QAPipeline(object):
 
         # Rank documents for queries.
         if len(queries) == 1:
-            ranked = [self.closest_docs(queries[0], k=n_docs)]
+            ranked = [self.retriever.closest_docs(queries[0], k=n_docs)]
         else:
-            ranked = self.batch_closest_docs(
+            ranked = self.retriever.batch_closest_docs(
                 queries, k=n_docs, num_workers=self.num_workers
             )
         all_docids, all_doc_scores = zip(*ranked)
         
-        '''
-        # Filter by question
-        flat_splits = []
-        filtered_texts = []
-        overlap = 0
-        noverlap = 0
-        for q_idx, (docids, query) in enumerate(zip(all_docids, queries)):
-            if q_idx < 70: continue
-            doc_texts = self.processes.map(fetch_text, docids)
-            q_token = self.parse(query)
-            # print(q_token)
-            for doc_text, docid in zip(doc_texts, docids):
-                splits = self._split_doc(doc_text)
-                for kk, split in enumerate(splits):
-                    # print(split)
-                    if any(len(re.findall(r'\b' + x + r'(\:|\,|\.|\?|\b)', 
-                           doc_text)) != 0 for x in q_token):
-                        overlap += 1
-                    else:
-                        noverlap += 1
-                didx2sidx.append([len(flat_splits), -1])
-                for split in splits:
-                    flat_splits.append(split)
-                didx2sidx[-1][1] = len(flat_splits)
-        '''
-
         # Flatten document ids and retrieve text from database.
-        # We remove duplicates for processing efficiency.
         flat_docids = list({d for docids in all_docids for d in docids})
         did2didx = {did: didx for didx, did in enumerate(flat_docids)}
         doc_texts = self.processes.map(fetch_text, flat_docids)
@@ -317,8 +206,6 @@ class QAPipeline(object):
         q_tokens = q_tokens.get()
         s_tokens = s_tokens.get()
 
-        # logger.info('end tokenize {}'.format(len(s_tokens)))
-
         # Group into structured example inputs. Examples' ids represent
         # mappings to their question, document, and split ids.
         examples = []
@@ -331,14 +218,10 @@ class QAPipeline(object):
                         examples.append({
                             'id': (qidx, rel_didx, sidx),
                             'question': q_tokens[qidx].words(),
-                            # 'qlemma': q_tokens[qidx].lemmas(),
                             'document': s_tokens[sidx].words(),
-                            # 'lemma': s_tokens[sidx].lemmas(),
-                            # 'pos': s_tokens[sidx].pos(),
-                            # 'ner': s_tokens[sidx].entities(),
                         })
                     else:
-                        assert False, 'Zero?'
+                        assert False, 'Should not be zero'
 
         logger.info('Ranking %d paragraphs...' % len(examples))
 
@@ -347,9 +230,9 @@ class QAPipeline(object):
         ex_ids = []
         sims = []
         num_loaders = min(self.max_loaders, math.floor(len(examples) / 1e3))
-        for batch in self._get_encoder_loader(examples, num_loaders):
-            doc_encoded, q_encoded = self.ranker.encode(batch)
-            sim = torch.sum(torch.mul(doc_encoded, q_encoded), dim=1)
+        for batch in self._get_ranker_loader(examples, num_loaders):
+            par_encoded, q_encoded = self.ranker.encode(batch)
+            sim = torch.sum(torch.mul(par_encoded, q_encoded), dim=1)
             sims.append(sim)
             ex_ids += batch[-1]
 
@@ -394,12 +277,7 @@ class QAPipeline(object):
                     reader_examples.append({
                         'id': (qidx, rel_didx, sidx),
                         'question': q_tokens[qidx].words(),
-                        # 'qlemma': q_tokens[qidx].lemmas(),
                         'document': s_tokens[sidx].words(),
-                        # 'lemma': s_tokens[sidx].lemmas(),
-                        # 'pos': s_tokens[sidx].pos(),
-                        # 'ner': s_tokens[sidx].entities(),
-                        # 'answers': 'hihi'
                     })
                 else:
                     assert False, 'Zero length words'
@@ -448,33 +326,16 @@ class QAPipeline(object):
             predictions = []
             while len(queue) > 0:
                 score, (qidx, rel_didx, sidx), s, e = heapq.heappop(queue)
-                # print('qidx {}, sidx {}: {}'.format(qidx, sidx, qs_to_score[qidx][sidx]))
                 prediction = {
-                    # 'doc_id': all_docids[qidx][rel_didx],
+                    'doc_id': all_docids[qidx][rel_didx],
                     's_idx': sidx,
                     'span': s_tokens[sidx].slice(s, e + 1).untokenize(),
                     'doc_score': float(all_doc_scores[qidx][rel_didx]),
                     'span_score': float(score),
                     'sidx_score': float(qs_to_score[qidx][sidx])
                 }
-                '''
-                if return_context:
-                    prediction['context'] = {
-                        'text': s_tokens[sidx].untokenize(),
-                        'start': s_tokens[sidx].offsets()[s][0],
-                        'end': s_tokens[sidx].offsets()[e][1],
-                    }
-                '''
                 predictions.append(prediction)
-            '''
-            print('PRED', predictions[-1::-1])
-            print('RANK', q_best[q_idx])
-            print('ANS', answers[q_idx])
-            print('QES', queries[q_idx])
-            print()
-            '''
             all_predictions.append(predictions[-1::-1])
-        # sys.exit()
 
         logger.info('Processed %d queries in %.4f (s)' %
                     (len(queries), time.time() - t0))

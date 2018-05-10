@@ -12,7 +12,7 @@ import unicodedata
 
 from torch.utils.data import Dataset
 from torch.utils.data.sampler import Sampler
-from root.ranker.vector import autoencoder_data
+from root.ranker.vector import ranker_data
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ class Dictionary(object):
 # ------------------------------------------------------------------------------
 
 
-class ReaderDataset(Dataset):
+class RankerDataset(Dataset):
 
     def __init__(self, examples, model, neg_size, allowed_size):
         self.model = model
@@ -114,7 +114,7 @@ class ReaderDataset(Dataset):
                 break
             
         neg_examples = [self.examples[ni] for ni in neg_indexes]
-        return autoencoder_data(self.examples[index], neg_examples, self.model)
+        return ranker_data(self.examples[index], neg_examples, self.model)
 
     def lengths(self):
         return [(len(ex['document']), len(ex['question']))
@@ -126,7 +126,7 @@ class ReaderDataset(Dataset):
 # ------------------------------------------------------------------------------
 
 
-class SortedBatchSampler(Sampler):
+class RankerBatchSampler(Sampler):
 
     def __init__(self, lengths, batch_size, shuffle=True):
         self.lengths = lengths

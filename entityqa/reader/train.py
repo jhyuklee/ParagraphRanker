@@ -448,7 +448,7 @@ def main(args):
     logger.info('Make data loaders')
     train_dataset = data.ReaderDataset(train_exs, model, single_answer=True)
     if args.sort_by_len:
-        train_sampler = data.SortedBatchSampler(train_dataset.lengths(),
+        train_sampler = data.ReaderBatchSampler(train_dataset.lengths(),
                                                 args.batch_size,
                                                 shuffle=True)
     else:
@@ -458,12 +458,12 @@ def main(args):
         batch_size=args.batch_size,
         sampler=train_sampler,
         num_workers=args.data_workers,
-        collate_fn=vector.batchify,
+        collate_fn=vector.reader_batchify,
         pin_memory=args.cuda,
     )
     dev_dataset = data.ReaderDataset(dev_exs, model, single_answer=False)
     if args.sort_by_len:
-        dev_sampler = data.SortedBatchSampler(dev_dataset.lengths(),
+        dev_sampler = data.ReaderBatchSampler(dev_dataset.lengths(),
                                               args.test_batch_size,
                                               shuffle=False)
     else:
@@ -473,7 +473,7 @@ def main(args):
         batch_size=args.test_batch_size,
         sampler=dev_sampler,
         num_workers=args.data_workers,
-        collate_fn=vector.batchify,
+        collate_fn=vector.reader_batchify,
         pin_memory=args.cuda,
     )
 

@@ -76,7 +76,7 @@ def vectorize(ex, model, single_answer=False):
     return document, features, question, start, end, ex['id']
 
 
-def autoencoder_data(ex, neg_exs, model):
+def ranker_data(ex, neg_exs, model):
     """Torchify a single autoencoder example."""
     document, features, question, _, _, ex_id = vectorize(ex, model, False)
 
@@ -91,7 +91,7 @@ def autoencoder_data(ex, neg_exs, model):
     return document, features, question, neg_documents, neg_features, ex_id
 
 
-def ae_train_batchify(batch):
+def ranker_train_batchify(batch):
     """Gather a batch of individual examples into one batch."""
     docs = []
     features = []
@@ -136,7 +136,7 @@ def ae_train_batchify(batch):
     return x1, x1_f, x1_mask, x2, x2_mask, ys
 
 
-def ae_dev_batchify(batch):
+def ranker_dev_batchify(batch):
     """Gather a batch of individual examples into one batch."""
     docs = []
     features = []

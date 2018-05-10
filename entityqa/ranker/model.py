@@ -20,7 +20,7 @@ from root.ranker.rnn_encoder import RnnEncoder
 logger = logging.getLogger(__name__)
 
 
-class DocumentEncoder(object):
+class ParagraphRanker(object):
     """High level model that handles intializing the underlying network
     architecture, saving, updating examples, and predicting examples.
     """
@@ -313,7 +313,7 @@ class DocumentEncoder(object):
 
     @staticmethod
     def load(filename, new_args=None, normalize=True):
-        logger.info('Loading model %s' % filename)
+        logger.info('Loading ranker %s' % filename)
         saved_params = torch.load(
             filename, map_location=lambda storage, loc: storage
         )
@@ -323,11 +323,11 @@ class DocumentEncoder(object):
         args = saved_params['args']
         if new_args:
             args = override_model_args(args, new_args)
-        return DocumentEncoder(args, word_dict, feature_dict, state_dict, normalize)
+        return ParagraphRanker(args, word_dict, feature_dict, state_dict, normalize)
 
     @staticmethod
     def load_checkpoint(filename, normalize=True):
-        logger.info('Loading model %s' % filename)
+        logger.info('Loading ranker %s' % filename)
         saved_params = torch.load(
             filename, map_location=lambda storage, loc: storage
         )
@@ -337,7 +337,7 @@ class DocumentEncoder(object):
         epoch = saved_params['epoch']
         optimizer = saved_params['optimizer']
         args = saved_params['args']
-        model = DocumentEncoder(args, word_dict, feature_dict, state_dict, normalize)
+        model = ParagraphRanker(args, word_dict, feature_dict, state_dict, normalize)
         model.init_optimizer(optimizer)
         return model, epoch
 

@@ -423,7 +423,7 @@ class DocReader(object):
 
     @staticmethod
     def load(filename, new_args=None, normalize=True):
-        logger.info('Loading model %s' % filename)
+        logger.info('Loading reader %s' % filename)
         saved_params = torch.load(
             filename, map_location=lambda storage, loc: storage
         )
@@ -437,7 +437,7 @@ class DocReader(object):
 
     @staticmethod
     def load_checkpoint(filename, normalize=True):
-        logger.info('Loading model %s' % filename)
+        logger.info('Loading reader %s' % filename)
         saved_params = torch.load(
             filename, map_location=lambda storage, loc: storage
         )

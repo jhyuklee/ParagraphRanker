@@ -2,7 +2,7 @@
 #
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-"""Main DrQA reader training script."""
+"""Main ParagraphRanker training script."""
 
 import argparse
 import torch
@@ -22,89 +22,10 @@ from functools import partial
 from pathlib import PosixPath
 from os.path import expanduser
 
-from model import DocumentEncoder
+from model import ParagraphRanker
 from root import tokenizers
-from root.retriever.doc_ranker import DocRanker
-from root.retriever.doc_db import DocDB
-from root.retriever.tfidf_doc_ranker import TfidfDocRanker
 
-import root.retriever.utils as r_utils
 import utils, vector, config, data
-
-
-PROCESS_TOK = None
-PROCESS_DB = None
-PROCESS_CANDS = None
-
-
-def init(tokenizer_class, tokenizer_opts, db_class, db_opts, candidates=None):
-    global PROCESS_TOK, PROCESS_DB, PROCESS_CANDS
-    PROCESS_TOK = tokenizer_class(**tokenizer_opts)
-    Finalize(PROCESS_TOK, PROCESS_TOK.shutdown, exitpriority=100)
-    PROCESS_DB = db_class(**db_opts)
-    Finalize(PROCESS_DB, PROCESS_DB.close, exitpriority=100)
-    PROCESS_CANDS = candidates
-
-
-def fetch_text(doc_id):
-    global PROCESS_DB
-    return PROCESS_DB.get_doc_text(doc_id)
-
-
-def tokenize_text(text):
-    global PROCESS_TOK
-    return PROCESS_TOK.tokenize(text)
-
-
-def regex_match(text, pattern):
-    """Test if a regex pattern is contained within a text."""
-    try:
-        pattern = re.compile(
-            pattern,
-            flags=re.IGNORECASE + re.UNICODE + re.MULTILINE,
-        )
-    except BaseException:
-        return False
-    return pattern.search(text) is not None
-
-
-def has_answer(answer, doc_id, match):
-    """Check if a document contains an answer string.
-
-    If `match` is string, token matching is done between the text and answer.
-    If `match` is regex, we search the whole text with the regex.
-    """
-    global PROCESS_DB, PROCESS_TOK
-    # doc_text = PROCESS_DB.get_doc_text(doc_id)
-    text = r_utils.normalize(doc_id)
-    if match == 'string':
-        # Answer is a list of possible strings
-        text = PROCESS_TOK.tokenize(text).words(uncased=True)
-        for single_answer in answer:
-            single_answer = r_utils.normalize(single_answer)
-            single_answer = PROCESS_TOK.tokenize(single_answer)
-            single_answer = single_answer.words(uncased=True)
-            for i in range(0, len(text) - len(single_answer) + 1):
-                if single_answer == text[i: i + len(single_answer)]:
-                    return True
-    elif match == 'regex':
-        # Answer is a regex
-        single_answer = r_utils.normalize(answer[0])
-        if regex_match(text, single_answer):
-            return True
-    else:
-        assert False, 'What is this? {}'.format(match)
-
-    return False
-
-
-def get_score(answer_doc, match):
-    """Search through all the top docs to see if they have the answer."""
-    answer, doc_texts = answer_doc
-    for doc_text in doc_texts:
-        if has_answer(answer, doc_text, match):
-            return 1
-    return 0
 
 
 MULTIQA_PATH = (
@@ -124,41 +45,6 @@ logger = logging.getLogger()
 DATA_DIR = os.path.join(MULTIQA_PATH[0], 'datasets')
 MODEL_DIR = os.path.join(MULTIQA_PATH[1], 'ranker/results/')
 EMBED_DIR = os.path.join(expanduser("~"), 'common/glove/')
-READER_PATH = os.path.join(MULTIQA_PATH[1], 
-    # 'reader/results/20180323-a705bbb5.mdl') # pretrained
-    # 'reader/results/20180402-20e74b70.mdl') # SQuAD finetuned (v0.2)
-    # 'reader/results/20180412-e32835b0.mdl') # TREC finetuned (v0.2)
-    # 'reader/results/20180412-d8e66822.mdl') # WebQ finetuned (v0.2)
-    # 'reader/results/20180412-69e73c93.mdl') # WikiM finetuned (v0.2)
-
-    # 'reader/results/20180402-20e74b70.mdl') # SQuAD finetuned (v0.1)
-    'reader/results/20180402-b6765c55.mdl') # TREC finetuned (v0.1)
-    # 'reader/results/20180402-14e759b0.mdl') # WebQ finetuned (v0.1)
-    # 'reader/results/20180402-018b239a.mdl') # WikiM finetuned (v0.1)
-
-    # 'reader/results/20180402-f6c823ed.mdl') # TREC finetuned (dep)
-    # 'reader/results/20180402-072b2054.mdl') # WebQ finetuned (dep)
-    # 'reader/results/20180402-37b6e412.mdl') # WikiM finetuned (dep)
-RET_PATH = os.path.join(MULTIQA_PATH[0], 
-    'wikipedia/docs-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz')
-DOC_DB_PATH = os.path.join(MULTIQA_PATH[0], 'wikipedia/docs.db')
-# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/SQuAD-v1.1-valid.txt')
-# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/CuratedTrec-valid.txt')
-# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/WebQuestions-valid.txt')
-# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/WikiMovies-valid.txt')
-
-# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/SQuAD-v1.1-dev.txt')
-QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/CuratedTrec-test.txt')
-# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/WebQuestions-test.txt')
-# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/WikiMovies-test.txt')
-RANKER_PATH = os.path.join(MULTIQA_PATH[1], 
-    # 'ranker/results/20180323-8d3fa60d.mdl') # soft + simple (pretrained)
-    # 'ranker/results/20180404-e6869910.mdl') # SQuAD finetuned
-    # 'ranker/results/20180404-c0308e5e.mdl') # TREC finetuned
-    # 'ranker/results/20180323-85eea1e4.mdl') # WebQ finetuned
-    # 'ranker/results/20180323-205d5338.mdl') # WikiM finetuned
-    # 'ranker/results/20180329-849cb50b.mdl') # soft + hard + simple
-    'ranker/results/20180419-f5c79d9a.mdl') # soft + hard (v0.2)
 
 
 def str2bool(v):
@@ -199,14 +85,6 @@ def add_train_args(parser):
                        help='Directory for saved models/checkpoints/logs')
     files.add_argument('--model-name', type=str, default='',
                        help='Unique model identifier (.mdl, .txt, .checkpoint)')
-    files.add_argument('--retriever-name', type=str, default=RET_PATH,
-                       help='Unique retriever path')
-    files.add_argument('--reader-name', type=str, default=READER_PATH,
-                       help='Unique reader path')
-    files.add_argument('--doc-db', type=str, default=DOC_DB_PATH,
-                       help='Unique doc db path')
-    files.add_argument('--query-data', type=str, default=QUERY_PATH,
-                       help='Unique query path')
     files.add_argument('--data-dir', type=str, default=DATA_DIR,
                        help='Directory of training/validation data')
     files.add_argument('--train-file', type=str,
@@ -227,7 +105,6 @@ def add_train_args(parser):
                        help=('Unprocessed dev file to run validation '
                              'while training on'))
     files.add_argument('--dev-txt', type=str, default='SQuAD-v1.1-dev.txt',
-    # files.add_argument('--dev-txt', type=str, default='CuratedTrec-test.txt',
                        help=('QA pairs of dev file'))
     files.add_argument('--embed-dir', type=str, default=EMBED_DIR,
                        help='Directory of pre-trained embedding files')
@@ -243,17 +120,12 @@ def add_train_args(parser):
                        help=('Tokenizer'))
     files.add_argument('--match', type=str, default='string',
                        help=('Matching function'))
-    files.add_argument('--n-docs', type=int, default=5,
-                       help=('Number of documents for filtering'))
-    files.add_argument('--n-pars', type=int, default=10,
-                       help=('Number of paragraphs'))
 
     # Saving + loading
     save_load = parser.add_argument_group('Saving/Loading')
     save_load.add_argument('--checkpoint', type='bool', default=False,
                            help='Save model + optimizer state after each epoch')
     save_load.add_argument('--pretrained', type=str, default=None,
-    # save_load.add_argument('--pretrained', type=str, default=RANKER_PATH,
                            help='Path to a pretrained model to warm-start with')
     save_load.add_argument('--expand-dictionary', type='bool', default=False,
                            help='Expand dictionary of pretrained model to ' +
@@ -357,7 +229,7 @@ def init_from_scratch(args, train_exs, dev_exs):
     logger.info('Num words = %d' % len(word_dict))
 
     # Initialize model
-    model = DocumentEncoder(config.get_model_args(args), word_dict, feature_dict)
+    model = ParagraphRanker(config.get_model_args(args), word_dict, feature_dict)
 
     # Load pretrained embeddings for words in dictionary
     if args.embedding_file and not args.no_embed:
@@ -484,14 +356,14 @@ def main(args):
         # Just resume training, no modifications.
         logger.info('Found a checkpoint...')
         checkpoint_file = args.model_file + '.checkpoint'
-        model, start_epoch = DocumentEncoder.load_checkpoint(checkpoint_file, 
+        model, start_epoch = ParagraphRanker.load_checkpoint(checkpoint_file, 
                                                              args)
     else:
         # Training starts fresh. But the model state is either pretrained or
         # newly (randomly) initialized.
         if args.pretrained:
             logger.info('Using pretrained model...')
-            model = DocumentEncoder.load(args.pretrained, args)
+            model = ParagraphRanker.load(args.pretrained, args)
             if args.expand_dictionary:
                 logger.info('Expanding dictionary for new data...')
                 # Add words in training + dev examples
@@ -536,10 +408,10 @@ def main(args):
     # Two datasets: train and dev. If we sort by length it's faster.
     logger.info('-' * 100)
     logger.info('Make data loaders')
-    train_dataset = data.ReaderDataset(train_exs, model, 
+    train_dataset = data.RankerDataset(train_exs, model, 
                                        args.neg_size, args.allowed_size)
     if args.sort_by_len:
-        train_sampler = data.SortedBatchSampler(train_dataset.lengths(),
+        train_sampler = data.RankerBatchSampler(train_dataset.lengths(),
                                                 args.batch_size,
                                                 shuffle=True)
     else:
@@ -549,13 +421,13 @@ def main(args):
         batch_size=args.batch_size,
         sampler=train_sampler,
         num_workers=args.data_workers,
-        collate_fn=vector.ae_train_batchify,
+        collate_fn=vector.ranker_train_batchify,
         pin_memory=args.cuda,
     )
-    dev_dataset = data.ReaderDataset(dev_exs, model,
+    dev_dataset = data.RankerDataset(dev_exs, model,
                                      neg_size=1, allowed_size=1000)
     if args.sort_by_len:
-        dev_sampler = data.SortedBatchSampler(dev_dataset.lengths(),
+        dev_sampler = data.RankerBatchSampler(dev_dataset.lengths(),
                                               args.test_batch_size,
                                               shuffle=False)
     else:
@@ -565,7 +437,7 @@ def main(args):
         batch_size=args.test_batch_size,
         sampler=dev_sampler,
         num_workers=args.data_workers,
-        collate_fn=vector.ae_dev_batchify,
+        collate_fn=vector.ranker_dev_batchify,
         pin_memory=args.cuda,
     )
 
@@ -603,114 +475,16 @@ def main(args):
             model.save(args.model_file)
             stats['best_valid'] = result[args.valid_metric]
 
-    # Encoder final evaluation
+    # Ranker final evaluation
     docs, qs = encode_docs_qs(args, dev_loader, model, stats, mode='dev')
     result = rank_docs(args, docs, qs, stats, mode='dev')
 
-    '''
-    # --------------------------------------------------------------------------
-    # EVAL WITH DOCUMENT ENCODER
-    start = time.time()
-    logger.info('Reading data ...')
-    questions = []
-    answers = []
-    for line in open(args.query_data):
-        qa_pair = json.loads(line)
-        question = qa_pair['question']
-        answer = qa_pair['answer']
-        questions.append(question)
-        answers.append(answer)
-
-    # Load candidates
-    if args.candidate_file:
-        logger.info('Loading candidates from %s' % args.candidate_file)
-        candidates = set()
-        with open(args.candidate_file) as f:
-            for line in f:
-                line = utils.normalize(line.strip()).lower()
-                candidates.add(line)
-        logger.info('Loaded %d candidates.' % len(candidates))
-    else:
-        candidates = None
-
-    # get the closest docs for each question.
-    logger.info('Initializing ranker...')
-    tok_class = tokenizers.get_class(args.tokenizer)
-    # ranker = TfidfDocRanker(tfidf_path=args.retriever_name)
-    ranker = DocRanker(model, args.reader_name, db_path=args.doc_db,
-                       tfidf_path=args.retriever_name,
-                       fixed_candidates=candidates)
-
-    logger.info('Ranking...')
-    # closest_pars = ranker.batch_closest_docs(
-    #    questions, k=args.n_docs, num_workers=None
-    # )
-    # Batcify questions and feed for ranking
-    # qas = list(zip(questions, answers))
-    # random.shuffle(qas)
-    # questions, answers = zip(*qas)
-    batches = [questions[i: i + args.predict_batch_size]
-               for i in range(0, len(questions), args.predict_batch_size)]
-               # for i in range(0, args.predict_batch_size, args.predict_batch_size)]
-    batches_targets = [answers[i: i + args.predict_batch_size]
-                       for i in range(0, len(answers), args.predict_batch_size)]
-    closest_pars = []
-    with open('results/predictions_{}.json'.format(args.model_name), 'w') as outf:
-        for i, (batch, target) in enumerate(zip(batches, batches_targets)):
-            logger.info(
-                '-' * 25 + ' Batch %d/%d ' % (i + 1, len(batches)) + '-' * 25
-            )
-            closest_par, predictions = ranker.rank_docs(batch, target,
-                                                        n_docs=args.n_docs,
-                                                        n_pars=args.n_pars)
-            closest_pars += closest_par
-            for p in predictions:
-                outf.write(json.dumps(p) + '\n')
-
-    # answers_docs = zip(answers[:args.predict_batch_size], 
-    #                    closest_pars[:args.predict_batch_size])
-    answers_docs = zip(answers, closest_pars)
-
-    # define processes
-    tok_opts = {}
-    db_class = DocDB
-    db_opts = {'db_path': args.doc_db}
-    processes = ProcessPool(
-        processes=args.data_workers,
-        initializer=init,
-        initargs=(tok_class, tok_opts, db_class, db_opts)
-    )
-
-    # compute the scores for each pair, and print the statistics
-    logger.info('Retrieving and computing scores...')
-    get_score_partial = partial(get_score, match=args.match)
-    scores = processes.map(get_score_partial, answers_docs)
-
-    filename = os.path.basename(args.query_data)
-    stats = (
-        "\n" + "-" * 50 + "\n" +
-        "{filename}\n" +
-        "Examples:\t\t\t{total}\n" +
-        "Matches in top {k}:\t\t{m}\n" +
-        "Match % in top {k}:\t\t{p:2.2f}\n" +
-        "Total time:\t\t\t{t:2.4f} (s)\n"
-    ).format(
-        filename=filename,
-        total=len(scores),
-        k=args.n_docs,
-        m=sum(scores),
-        p=(sum(scores) / len(scores) * 100),
-        t=time.time() - start,
-    )
-
-    print(stats)
-    '''
 
 
 if __name__ == '__main__':
     # Parse cmdline args and setup environment
     parser = argparse.ArgumentParser(
-        'DrQA Document Reader',
+        'DrQA Document ranker',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     add_train_args(parser)
