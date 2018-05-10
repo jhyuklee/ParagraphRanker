@@ -75,6 +75,12 @@ DATASETS = {
 QUERY_PATH = (lambda dataset, split: \
     os.path.join(PATHS['DATA'], '{}-{}.txt'.format(DATASETS[dataset], split)))
 
+# Candidate paths
+CANDIDATES = {
+    'WebQ': os.path.join(PATHS['DATA'], 'freebase-entities.txt'),
+    'WikiM': os.path.join(PATHS['DATA'], 'WikiMovies-entities.txt'),
+}
+
 
 def str2bool(v):
     return v.lower() in ('yes', 'true', 't', '1', 'y')
@@ -121,13 +127,13 @@ def add_train_args(parser):
                        help='Directory for saved models/checkpoints/logs')
     files.add_argument('--model-name', type=str, default='',
                        help='Unique model identifier (.mdl, .txt, .checkpoint)')
-    files.add_argument('--retriever-name', type=str, default=RET_PATH,
+    files.add_argument('--retriever-path', type=str, default=RET_PATH,
                        help='Unique retriever path')
-    files.add_argument('--ranker-name', type=str, default=RANKER_PATH['test'],
+    files.add_argument('--ranker-path', type=str, default=RANKER_PATH['test'],
                        help='Unique ranker path')
-    files.add_argument('--reader-name', type=str, default=READER_PATH['default'],
+    files.add_argument('--reader-path', type=str, default=READER_PATH['default'],
                        help='Unique reader path')
-    files.add_argument('--doc-db', type=str, default=DOC_DB_PATH,
+    files.add_argument('--db-path', type=str, default=DOC_DB_PATH,
                        help='Unique doc db path')
     files.add_argument('--query-data', type=str, default=QUERY_PATH('SQuAD', 'dev'),
                        help='Unique query path')
@@ -159,6 +165,8 @@ def set_defaults(args):
 
     # Set logging
     args.log_file = os.path.join(args.model_dir, args.model_name + '.txt')
+    args.pred_file = os.path.join(args.model_dir, 
+                                  'pred_{}.json'.format(args.model_name))
     logger.setLevel(logging.INFO)
     fmt = logging.Formatter('%(asctime)s: [ %(message)s ]',
                             '%m/%d/%Y %I:%M:%S %p')
@@ -183,9 +191,9 @@ def set_defaults(args):
 
     # Set ranker/reader/query paths
     if args.ranker_type:
-        args.ranker_name = RANKER_PATH[args.ranker_type]
+        args.ranker_path = RANKER_PATH[args.ranker_type]
     if args.reader_type:
-        args.reader_name = READER_PATH[args.reader_type]
+        args.reader_path = READER_PATH[args.reader_type]
     if args.query_type:
         if args.query_type == 'SQuAD' and args.query_split == 'test':
             args.query_split = 'dev'
@@ -193,6 +201,7 @@ def set_defaults(args):
     if args.query_type == 'TREC':
         args.match = 'regex'
         logger.info('{} match for {}'.format(args.match, args.query_type))
+    args.candidate_file = CANDIDATES.get(args.query_type, None)
     
     return args
 
@@ -273,7 +282,7 @@ def get_score(answer_doc, match):
 
 
 def main(args):
-    # EVAL WITH DOCUMENT ENCODER
+    # Read query data
     start = time.time()
     logger.info('Reading data ...')
     questions = []
@@ -286,6 +295,7 @@ def main(args):
         answers.append(answer)
 
     # Load candidates
+    candidates = None
     if args.candidate_file:
         logger.info('Loading candidates from %s' % args.candidate_file)
         candidates = set()
@@ -294,54 +304,42 @@ def main(args):
                 line = utils.normalize(line.strip()).lower()
                 candidates.add(line)
         logger.info('Loaded %d candidates.' % len(candidates))
-    else:
-        candidates = None
 
     # get the closest docs for each question.
     logger.info('Initializing pipeline...')
     tok_class = tokenizers.get_class(args.tokenizer)
-    pipeline = QAPipeline(args.ranker_name, args.reader_name, 
-                          db_path=args.doc_db,
-                          tfidf_path=args.retriever_name,
+    pipeline = QAPipeline(retriever_path=args.retriever_path,
+                          db_path=args.db_path,
+                          ranker_path=args.ranker_path,
+                          reader_path=args.reader_path,
                           fixed_candidates=candidates)
 
-    logger.info('Ranking...')
-    '''
-    closest_pars = ranker.batch_closest_docs(
-        questions, k=args.n_docs, num_workers=None
-    )
-    '''
-    # Batcify questions and feed for ranking
-    # qas = list(zip(questions, answers))
-    # random.shuffle(qas)
-    # questions, answers = zip(*qas)
+    # Batcify questions and feed for prediction
     batches = [questions[i: i + args.predict_batch_size]
-               for i in range(0, len(questions), args.predict_batch_size)]
-               # for i in range(0, args.predict_batch_size, args.predict_batch_size)]
+        for i in range(0, len(questions), args.predict_batch_size)]
     batches_targets = [answers[i: i + args.predict_batch_size]
-                       for i in range(0, len(answers), args.predict_batch_size)]
+        for i in range(0, len(answers), args.predict_batch_size)]
+
+    # Predict and record results
+    logger.info('Predicting...')
     closest_pars = []
-    with open(os.path.join(args.model_dir,
-              'predictions_{}.json'.format(args.model_name)), 'w') as outf:
+    with open(args.pred_file), 'w') as pred_f:
         for i, (batch, target) in enumerate(zip(batches, batches_targets)):
             logger.info(
                 '-' * 25 + ' Batch %d/%d ' % (i + 1, len(batches)) + '-' * 25
             )
-            closest_par, predictions = pipeline.rank_docs(batch, target,
+            closest_par, predictions = pipeline.predict(batch, target,
                                                         n_docs=args.n_docs,
                                                         n_pars=args.n_pars)
             closest_pars += closest_par
             for p in predictions:
-                outf.write(json.dumps(p) + '\n')
-
-    # answers_docs = zip(answers[:args.predict_batch_size], 
-    #                    closest_pars[:args.predict_batch_size])
-    answers_docs = zip(answers, closest_pars)
+                pred_f.write(json.dumps(p) + '\n')
+    answers_pars = zip(answers, closest_pars)
 
     # define processes
     tok_opts = {}
     db_class = DocDB
-    db_opts = {'db_path': args.doc_db}
+    db_opts = {'db_path': args.db_path}
     processes = ProcessPool(
         processes=args.data_workers,
         initializer=init,
@@ -351,7 +349,7 @@ def main(args):
     # compute the scores for each pair, and print the statistics
     logger.info('Retrieving and computing scores...')
     get_score_partial = partial(get_score, match=args.match)
-    scores = processes.map(get_score_partial, answers_docs)
+    scores = processes.map(get_score_partial, answers_pars)
 
     filename = os.path.basename(args.query_data)
     stats = (

@@ -68,7 +68,7 @@ class QAPipeline(object):
     Scores new queries by taking sparse dot products.
     """
 
-    def __init__(self, ranker_name, reader_name, db_path, tfidf_path=None, strict=True,
+    def __init__(self, retriever_path, db_path, ranker_path, reader_path, strict=True,
                  fixed_candidates=None):
         """
         Args:
@@ -76,9 +76,8 @@ class QAPipeline(object):
             strict: fail on empty queries or continue (and return empty result)
         """
         # Load from disk
-        tfidf_path = tfidf_path or DEFAULTS['tfidf_path']
-        logger.info('Loading %s' % tfidf_path)
-        matrix, metadata = utils.load_sparse_csr(tfidf_path)
+        logger.info('Loading %s' % retriever_path)
+        matrix, metadata = utils.load_sparse_csr(retriever_path)
         self.doc_mat = matrix
         self.ngrams = metadata['ngram']
         self.hash_size = metadata['hash_size']
@@ -254,7 +253,7 @@ class QAPipeline(object):
 
         return loader
 
-    def rank_docs(self, queries, answers, candidates=None, n_docs=5, n_pars=10):
+    def predict(self, queries, answers, candidates=None, n_docs=5, n_pars=10):
         t0 = time.time()
         logger.info('Processing %d queries...' % len(queries))
         logger.info('Retrieving top %d docs...' % n_docs)
