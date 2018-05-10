@@ -21,57 +21,59 @@ from root.ranker import data, utils
 from root.ranker.model import DocumentEncoder
 from root.pipeline.pipeline import QAPipeline
 from root.retriever.doc_db import DocDB
-
 import root.retriever.utils as r_utils
-
-
-MULTIQA_PATH = (
-    os.path.join(PosixPath(__file__).absolute().parents[2].as_posix(), 'data'),
-    PosixPath(__file__).absolute().parents[1].as_posix()
-)
 
 logger = logging.getLogger()
 
-# Defaults
-DATA_DIR = os.path.join(MULTIQA_PATH[0], 'datasets')
-PIPELINE_DIR = os.path.join(MULTIQA_PATH[1], 'pipeline/results/')
-EMBED_DIR = os.path.join(expanduser("~"), 'common/glove/')
-READER_PATH = os.path.join(MULTIQA_PATH[1], 
-    'reader/results/20180323-a705bbb5.mdl') # pretrained
-    # 'reader/results/20180402-20e74b70.mdl') # SQuAD finetuned (v0.2)
-    # 'reader/results/20180412-e32835b0.mdl') # TREC finetuned (v0.2)
-    # 'reader/results/20180412-d8e66822.mdl') # WebQ finetuned (v0.2)
-    # 'reader/results/20180412-69e73c93.mdl') # WikiM finetuned (v0.2)
+'''
+Usage example:
+    ~/EntityQA $ python entityqa/pipeline/predict.py \
+                        --query-type SQuAD \
+                        --ranker-type default \
+                        --reader-type default
+'''
 
-    # 'reader/results/20180402-20e74b70.mdl') # SQuAD finetuned (v0.1)
-    # 'reader/results/20180402-b6765c55.mdl') # TREC finetuned (v0.1)
-    # 'reader/results/20180402-14e759b0.mdl') # WebQ finetuned (v0.1)
-    # 'reader/results/20180402-018b239a.mdl') # WikiM finetuned (v0.1)
+# (root/data, root/entityqa) paths
+ROOT_PATH = PosixPath(__file__).absolute().parents[2].as_posix()
+PATHS = {
+    'DATA': os.path.join(ROOT_PATH, 'data/datasets'),
+    'EMBED': os.path.join(expanduser("~"), 'common/glove/'),
+    'PIPELINE': os.path.join(ROOT_PATH, 'entityqa/pipeline/results'),
+    'WIKI': os.path.join(ROOT_PATH, 'data/wikipedia'),
+    'RANKER': os.path.join(ROOT_PATH, 'entityqa/ranker/results'),
+    'READER': os.path.join(ROOT_PATH, 'entityqa/reader/results'),
+}
 
-    # 'reader/results/20180402-f6c823ed.mdl') # TREC finetuned (dep)
-    # 'reader/results/20180402-072b2054.mdl') # WebQ finetuned (dep)
-    # 'reader/results/20180402-37b6e412.mdl') # WikiM finetuned (dep)
-RET_PATH = os.path.join(MULTIQA_PATH[0], 
-    'wikipedia/docs-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz')
-DOC_DB_PATH = os.path.join(MULTIQA_PATH[0], 'wikipedia/docs.db')
-# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/SQuAD-v1.1-valid.txt')
-# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/CuratedTrec-valid.txt')
-# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/WebQuestions-valid.txt')
-# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/WikiMovies-valid.txt')
+# Retriever, DB paths
+RET_PATH = os.path.join(PATHS['WIKI'],
+    'docs-tfidf-ngram=2-hash=16777216-tokenizer=simple.npz')
+DOC_DB_PATH = os.path.join(PATHS['WIKI'], 'docs.db')
 
-QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/SQuAD-v1.1-dev.txt')
-# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/CuratedTrec-test.txt')
-# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/WebQuestions-test.txt')
-# QUERY_PATH = os.path.join(MULTIQA_PATH[0], 'datasets/WikiMovies-test.txt')
-RANKER_PATH = os.path.join(MULTIQA_PATH[1], 
-    # 'ranker/results/20180323-8d3fa60d.mdl') # soft + simple (pretrained)
-    # 'ranker/results/20180404-e6869910.mdl') # SQuAD finetuned
-    # 'ranker/results/20180404-c0308e5e.mdl') # TREC finetuned
-    # 'ranker/results/20180323-85eea1e4.mdl') # WebQ finetuned
-    # 'ranker/results/20180323-205d5338.mdl') # WikiM finetuned
-    # 'ranker/results/20180329-849cb50b.mdl') # soft + hard + simple
-    # 'ranker/results/20180419-f5c79d9a.mdl') # soft + hard (v0.2)
-    'ranker/results/20180509-66a734e9.mdl') # test
+# Reader paths (default + fine-tined)
+READER_PATH = {
+    'default': os.path.join(PATHS['READER'], '20180323-a705bbb5.mdl'),
+    'SQuAD': os.path.join(PATHS['READER'], '20180402-20e74b70.mdl'),
+    'TREC': os.path.join(PATHS['READER'], '20180402-b6765c55.mdl'),
+    'WebQ': os.path.join(PATHS['READER'], '20180402-14e759b0.mdl'),
+    'WikiM': os.path.join(PATHS['READER'], '20180402-018b239a.mdl'),
+}
+
+# Ranker paths
+RANKER_PATH = {
+    'test': os.path.join(PATHS['RANKER'], '20180509-66a734e9.mdl'),
+    'soft': os.path.join(PATHS['RANKER'], '20180323-8d3fa60d.mdl'),
+    'hard': os.path.join(PATHS['RANKER'], '20180419-f5c79d9a.mdl'),
+}
+
+# Query path
+DATASETS = {
+    'SQuAD': 'SQuAD-v1.1',
+    'TREC': 'CuratedTrec',
+    'WebQ': 'WebQuestions',
+    'WikiM': 'WikiMovies'
+}
+QUERY_PATH = (lambda dataset, split: \
+    os.path.join(PATHS['DATA'], '{}-{}.txt'.format(DATASETS[dataset], split)))
 
 
 def str2bool(v):
@@ -79,9 +81,6 @@ def str2bool(v):
 
 
 def add_train_args(parser):
-    """Adds commandline arguments pertaining to training a model. These
-    are different from the arguments dictating the model architecture.
-    """
     parser.register('type', 'bool', str2bool)
 
     # Runtime environment
@@ -99,24 +98,40 @@ def add_train_args(parser):
                                'operations (for reproducibility)'))
     runtime.add_argument('--predict-batch-size', type=int, default=100,
                          help='Batch size for question prediction')
+    runtime.add_argument('--n-docs', type=int, default=20,
+                         help=('Number of documents for filtering'))
+    runtime.add_argument('--n-pars', type=int, default=200,
+                         help=('Number of paragraphs'))
+    runtime.add_argument('--tokenizer', type=str, default='regexp',
+                         help=('Tokenizer'))
+    runtime.add_argument('--match', type=str, default='string',
+                         help=('Matching function (set to regex for Trec)'))
+    runtime.add_argument('--ranker-type', type=str, default='test',
+                         help=('Type of ranker'))
+    runtime.add_argument('--reader-type', type=str, default='TREC',
+                         help=('Type of reader'))
+    runtime.add_argument('--query-type', type=str, default='TREC',
+                         help=('Type of query'))
+    runtime.add_argument('--query-split', type=str, default='test',
+                         help=('Split type of query (valid/test)'))
 
     # Files
     files = parser.add_argument_group('Filesystem')
-    files.add_argument('--model-dir', type=str, default=PIPELINE_DIR,
+    files.add_argument('--model-dir', type=str, default=PATHS['PIPELINE'],
                        help='Directory for saved models/checkpoints/logs')
     files.add_argument('--model-name', type=str, default='',
                        help='Unique model identifier (.mdl, .txt, .checkpoint)')
     files.add_argument('--retriever-name', type=str, default=RET_PATH,
                        help='Unique retriever path')
-    files.add_argument('--reader-name', type=str, default=READER_PATH,
+    files.add_argument('--ranker-name', type=str, default=RANKER_PATH['test'],
+                       help='Unique ranker path')
+    files.add_argument('--reader-name', type=str, default=READER_PATH['default'],
                        help='Unique reader path')
     files.add_argument('--doc-db', type=str, default=DOC_DB_PATH,
                        help='Unique doc db path')
-    files.add_argument('--query-data', type=str, default=QUERY_PATH,
+    files.add_argument('--query-data', type=str, default=QUERY_PATH('SQuAD', 'dev'),
                        help='Unique query path')
-    files.add_argument('--data-dir', type=str, default=DATA_DIR,
-                       help='Directory of training/validation data')
-    files.add_argument('--embed-dir', type=str, default=EMBED_DIR,
+    files.add_argument('--embed-dir', type=str, default=PATHS['EMBED'],
                        help='Directory of pre-trained embedding files')
     files.add_argument('--embedding-file', type=str,
                        default='glove.840B.300d.txt',
@@ -124,49 +139,6 @@ def add_train_args(parser):
     files.add_argument('--candidate-file', type=str, default=None,
                         help=("List of candidates to restrict predictions to, "
                               "one candidate per line"))
-    files.add_argument('--no-embed', type='bool', default=False,
-                       help='Do not load pretrained for faster debug')
-    files.add_argument('--tokenizer', type=str, default='regexp',
-                       help=('Tokenizer'))
-    files.add_argument('--match', type=str, default='string',
-                       help=('Matching function'))
-    files.add_argument('--n-docs', type=int, default=20,
-                       help=('Number of documents for filtering'))
-    files.add_argument('--n-pars', type=int, default=200,
-                       help=('Number of paragraphs'))
-
-    # Saving + loading
-    save_load = parser.add_argument_group('Saving/Loading')
-    save_load.add_argument('--checkpoint', type='bool', default=False,
-                           help='Save model + optimizer state after each epoch')
-    save_load.add_argument('--pretrained', type=str, default=RANKER_PATH,
-                           help='Path to a pretrained model to warm-start with')
-    save_load.add_argument('--expand-dictionary', type='bool', default=False,
-                           help='Expand dictionary of pretrained model to ' +
-                                'include training/dev words of new data')
-    # Data preprocessing
-    preprocess = parser.add_argument_group('Preprocessing')
-    preprocess.add_argument('--uncased-question', type='bool', default=False,
-                            help='Question words will be lower-cased')
-    preprocess.add_argument('--uncased-doc', type='bool', default=False,
-                            help='Document words will be lower-cased')
-    preprocess.add_argument('--restrict-vocab', type='bool', default=True,
-                            help='Only use pre-trained words in embedding_file')
-    preprocess.add_argument('--neg-size', type=int, default=5,
-                            help='Number of negative samples')
-    preprocess.add_argument('--allowed-size', type=int, default=100,
-                            help='Length allowed for the same batch')
-
-    # General
-    general = parser.add_argument_group('General')
-    general.add_argument('--official-eval', type='bool', default=True,
-                         help='Validate with official SQuAD eval')
-    general.add_argument('--valid-metric', type=str, default='P@5',
-                         help='The evaluation metric used for model selection')
-    general.add_argument('--display-iter', type=int, default=500,
-                         help='Log state after every <display_iter> epochs')
-    general.add_argument('--sort-by-len', type='bool', default=True,
-                         help='Sort batches by length for speed')
 
 
 def set_defaults(args):
@@ -185,9 +157,20 @@ def set_defaults(args):
         import time
         args.model_name = time.strftime("%Y%m%d-") + str(uuid.uuid4())[:8]
 
-    # Set log + model file names
+    # Set logging
     args.log_file = os.path.join(args.model_dir, args.model_name + '.txt')
-    args.model_file = os.path.join(args.model_dir, args.model_name + '.mdl')
+    logger.setLevel(logging.INFO)
+    fmt = logging.Formatter('%(asctime)s: [ %(message)s ]',
+                            '%m/%d/%Y %I:%M:%S %p')
+    console = logging.StreamHandler()
+    console.setFormatter(fmt)
+    logger.addHandler(console)
+    if args.log_file:
+        logfile = logging.FileHandler(args.log_file, 'w')
+        logfile.setFormatter(fmt)
+        logger.addHandler(logfile)
+    logger.info('COMMAND: %s' % ' '.join(sys.argv))
+    logger.info('-' * 100)
 
     # Embeddings options
     if args.embedding_file:
@@ -198,6 +181,19 @@ def set_defaults(args):
         raise RuntimeError('Either embedding_file or embedding_dim '
                            'needs to be specified.')
 
+    # Set ranker/reader/query paths
+    if args.ranker_type:
+        args.ranker_name = RANKER_PATH[args.ranker_type]
+    if args.reader_type:
+        args.reader_name = READER_PATH[args.reader_type]
+    if args.query_type:
+        if args.query_type == 'SQuAD' and args.query_split == 'test':
+            args.query_split = 'dev'
+        args.query_data = QUERY_PATH(args.query_type, args.query_split)
+    if args.query_type == 'TREC':
+        args.match = 'regex'
+        logger.info('{} match for {}'.format(args.match, args.query_type))
+    
     return args
 
 
@@ -304,8 +300,7 @@ def main(args):
     # get the closest docs for each question.
     logger.info('Initializing pipeline...')
     tok_class = tokenizers.get_class(args.tokenizer)
-    # ranker = TfidfDocRanker(tfidf_path=args.retriever_name)
-    pipeline = QAPipeline(args.pretrained, args.reader_name, 
+    pipeline = QAPipeline(args.ranker_name, args.reader_name, 
                           db_path=args.doc_db,
                           tfidf_path=args.retriever_name,
                           fixed_candidates=candidates)
@@ -326,7 +321,7 @@ def main(args):
     batches_targets = [answers[i: i + args.predict_batch_size]
                        for i in range(0, len(answers), args.predict_batch_size)]
     closest_pars = []
-    with open(os.path.join(MULTIQA_PATH[1], args.model_dir,
+    with open(os.path.join(args.model_dir,
               'predictions_{}.json'.format(args.model_name)), 'w') as outf:
         for i, (batch, target) in enumerate(zip(batches, batches_targets)):
             logger.info(
@@ -399,24 +394,7 @@ if __name__ == '__main__':
     if args.cuda:
         torch.cuda.manual_seed(args.random_seed)
 
-    # Set logging
-    logger.setLevel(logging.INFO)
-    fmt = logging.Formatter('%(asctime)s: [ %(message)s ]',
-                            '%m/%d/%Y %I:%M:%S %p')
-    console = logging.StreamHandler()
-    console.setFormatter(fmt)
-    logger.addHandler(console)
-    if args.log_file:
-        if args.checkpoint:
-            logfile = logging.FileHandler(args.log_file, 'a')
-        else:
-            logfile = logging.FileHandler(args.log_file, 'w')
-        logfile.setFormatter(fmt)
-        logger.addHandler(logfile)
-    logger.info('COMMAND: %s' % ' '.join(sys.argv))
-
     # PRINT CONFIG
-    logger.info('-' * 100)
     logger.info('CONFIG:\n%s' %
                 json.dumps(vars(args), indent=4, sort_keys=True))
 
