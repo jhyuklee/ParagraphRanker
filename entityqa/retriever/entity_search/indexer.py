@@ -12,7 +12,7 @@ from org.apache.lucene.store import SimpleFSDirectory
 import sys
 import time
 import threading
-
+from .preprocess_nlp import DocDB
 
 # Ref.
 # http://svn.apache.org/viewvc/lucene/pylucene/trunk/samples/IndexFiles.py
@@ -21,7 +21,7 @@ import threading
 class IndexFiles(object):
     """Usage: python IndexFiles <doc_directory>"""
 
-    def __init__(self, store_dir, analyzer, docs_path):
+    def __init__(self, store_dir, analyzer):
         if not os.path.exists(store_dir):
             os.mkdir(store_dir)
 
@@ -31,7 +31,11 @@ class IndexFiles(object):
         config.setOpenMode(IndexWriterConfig.OpenMode.CREATE)
         self.writer = IndexWriter(store, config)
 
-        self.index_docs(docs_path)
+        self.wiki_db = DocDB(
+            db_path=os.path.join(os.path.expanduser('~'), 'common', 'wikipedia',
+                                 'docs.db'))
+
+        self.index_docs()
         ticker = Ticker()
         print('commit index')
         threading.Thread(target=ticker.run).start()
@@ -40,7 +44,7 @@ class IndexFiles(object):
         ticker.tick = False
         print('done')
 
-    def index_docs(self, docs_path):
+    def index_docs(self):
         t1 = FieldType()
         t1.setStored(True)
         t1.setTokenized(False)
@@ -54,43 +58,48 @@ class IndexFiles(object):
         num_paragraphs = 0
         num_empty_paragraphs = 0
 
-        # TODO get docs from our sqlite db
-        with open(docs_path, 'r', encoding='utf-8') as f:
-            for d_idx, line in enumerate(f):
-                doc_dict = json.loads(line)
+        # get docs from our sqlite db
+        doc_ids = self.wiki_db.get_doc_ids()
+        for d_idx, doc_id in enumerate(doc_ids):
+            doc_p_ents = self.wiki_db.get_doc_p_ents(doc_id)
 
-                paragraphs = doc_dict['paragraphs']
-                for p_idx, p in enumerate(paragraphs):
+            if doc_p_ents is None:
+                continue
 
-                    if len(p['text']) == 0:
-                        num_empty_paragraphs += 1
-                        continue
+            doc_dict = json.loads(doc_p_ents)
 
-                    lucene_doc = Document()
-                    lucene_doc.add(Field("wiki_doc_id", doc_dict['id'], t1))
-                    lucene_doc.add(Field("p_idx", str(p_idx), t1))
-                    lucene_doc.add(Field("content", p['text'], t2))
+            paragraphs = doc_dict['paragraphs']
+            for p_idx, p in enumerate(paragraphs):
 
-                    # Named-entities
-                    ents = p['ents']
-                    if len(ents) > 0:
-                        for entity in ents:
-                            lucene_doc.add(Field("entity", entity['text'], t2))
-                            lucene_doc.add(Field("entity_label",
-                                                 entity['label_'], t2))
-                            lucene_doc.add(Field("entity_start",
-                                                 str(entity['start_char']),
-                                                 t1))
-                            lucene_doc.add(Field("entity_end",
-                                                 str(entity['end_char']),
-                                                 t1))
+                if len(p['text']) == 0:
+                    num_empty_paragraphs += 1
+                    continue
 
-                    self.writer.addDocument(lucene_doc)
-                    num_paragraphs += 1
+                lucene_doc = Document()
+                lucene_doc.add(Field("wiki_doc_id", doc_dict['id'], t1))
+                lucene_doc.add(Field("p_idx", str(p_idx), t1))
+                lucene_doc.add(Field("content", p['text'], t2))
 
-                if (d_idx + 1) % 10000 == 0:
-                    print(datetime.now(), 'Added #docs', d_idx + 1,
-                          '#paragraphs', num_paragraphs)
+                # Named-entities
+                ents = p['ents']
+                if len(ents) > 0:
+                    for entity in ents:
+                        lucene_doc.add(Field("entity", entity['text'], t2))
+                        lucene_doc.add(Field("entity_label",
+                                             entity['label_'], t2))
+                        lucene_doc.add(Field("entity_start",
+                                             str(entity['start_char']),
+                                             t1))
+                        lucene_doc.add(Field("entity_end",
+                                             str(entity['end_char']),
+                                             t1))
+
+                self.writer.addDocument(lucene_doc)
+                num_paragraphs += 1
+
+            if (d_idx + 1) % 10000 == 0:
+                print(datetime.now(), 'Added #docs', d_idx + 1,
+                      '#paragraphs', num_paragraphs)
 
         print('#empty_paragraphs', num_empty_paragraphs)
 
@@ -113,8 +122,7 @@ if __name__ == '__main__':
     start = datetime.now()
     try:
         base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-        IndexFiles(os.path.join(base_dir, 'eqa_index'),
-                   StandardAnalyzer(), './data/wiki_spacy_ner.json')
+        IndexFiles(os.path.join(base_dir, 'eqa_index'), StandardAnalyzer())
         end = datetime.now()
         print(end - start)
     except Exception as e:

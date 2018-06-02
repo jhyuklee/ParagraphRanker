@@ -23,6 +23,18 @@ class DocDB(object):
         self.path = db_path
         self.connection = sqlite3.connect(self.path, check_same_thread=False)
 
+        cursor = self.connection.cursor()
+        # # add 'p_ner_spacy' column to wiki_db
+        # cursor.execute("ALTER TABLE documents ADD p_ner_spacy TEXT")
+        cursor.execute("PRAGMA table_info(documents)")
+        print(cursor.fetchall())
+        cursor.close()
+
+        # add index
+        # cursor = wiki_db.connection.cursor()
+        # cursor.execute("CREATE INDEX idx ON documents(id)")
+        # cursor.close()
+
     def __enter__(self):
         return self
 
@@ -56,11 +68,22 @@ class DocDB(object):
         cursor.close()
         return result if result is None else result[0]
 
-    def update_doc(self, doc_id, k, v):
+    def get_doc_p_ents(self, doc_id):
+        """Fetch the raw text of the doc for 'doc_id'."""
         cursor = self.connection.cursor()
         cursor.execute(
-            "UPDATE documents SET ? = ? WHERE id = ?",
-            (k, v, unicodedata.normalize('NFD', doc_id))
+            "SELECT p_ner_spacy FROM documents WHERE id = ?",
+            (unicodedata.normalize('NFD', doc_id),)
+        )
+        result = cursor.fetchone()
+        cursor.close()
+        return result if result is None else result[0]
+
+    def update_ner_doc(self, doc_id, v):
+        cursor = self.connection.cursor()
+        cursor.execute(
+            "UPDATE documents SET p_ner_spacy=? WHERE id = ?",
+            (v, unicodedata.normalize('NFD', doc_id))
         )
         cursor.close()
 
@@ -70,23 +93,22 @@ def preprocess_worker(doc_id):
     global nlp_spacy
     global doc_ids
     global doc_count
+    global skipped_doc_count
 
-    # TODO skip already processed docs
+    # skip already processed docs
+    doc_p_ents = wiki_db.get_doc_p_ents(doc_id)
+    if doc_p_ents is None:
+        # with threading_lock:
+        #     print('Already processed doc', doc_id)
+        skipped_doc_count += 1
+        return
 
     doc_text = wiki_db.get_doc_text(doc_id)
     paragraph_infos = list()
 
     paragraphs = doc_text.split('\n\n')
     for p_idx, p in enumerate(paragraphs):
-        p_doc = nlp_spacy(p.strip())
-        # for sent_idx, sent in enumerate(p_doc.sents):
-        #     print('sentence', sent_idx, sent.text, sep='\t')
-        #
-        #     # NER BIO tags
-        #     for token_idx, token in enumerate(sent):
-        #         print(token_idx, token.text, token.ent_iob_,
-        #               token.ent_type_,
-        #               sep='\t')
+        p_doc = nlp_spacy(p.strip())  # trim and nlp
 
         # NER
         ents = list()
@@ -96,46 +118,35 @@ def preprocess_worker(doc_id):
                          'end_char': entity.end_char,
                          'label_': entity.label_})
 
-        # TODO add paragraph start, end offsets
         paragraph_info = {
             'text': p,
             'ents': ents
         }
         paragraph_infos.append(paragraph_info)
 
-    wikidoc = {
-        'id': doc_id,
-        'text': doc_text,
-        'paragraphs': paragraph_infos
-    }
-
     with threading_lock:
-        wikidoc_json = json.dumps(wikidoc)
-        with open(output_file, 'a', encoding='utf-8') as f:
-            f.write(wikidoc_json)
-            f.write('\n')
+        wiki_db.update_ner_doc(doc_id,
+                               json.dumps({'paragraphs': paragraph_infos}))
 
         doc_count += 1
-        if doc_count % 10000 == 0:
-            print(datetime.now(), doc_count)
+        if doc_count % 1000 == 0:
+            print(datetime.now(), doc_count,
+                  '(skipped {})'.format(skipped_doc_count))
+            wiki_db.connection.commit()
 
-        # wiki_db.update_doc(doc_id, 'spaCy',
-        #                    json.dumps({'paragraphs': paragraph_infos}))
 
-
-output_file = './data/wiki_spacy_ner.json'
 n_threads = 8
 wiki_db = DocDB(
-    db_path=os.path.join(os.path.expanduser('~'), 'common', 'wiki', 'docs.db'))
+    db_path=os.path.join(os.path.expanduser('~'), 'common', 'wikipedia',
+                         'docs.db'))
 
-# TODO add 'spaCy' column to wiki_db
-
-# python3.6 -m spacy download en_core_web_lg
+# python3 -m spacy download en_core_web_lg
 nlp_spacy = spacy.load('en_core_web_lg', disable=['parser', 'tagger'])
 doc_ids = wiki_db.get_doc_ids()
 print('# wiki docs', len(doc_ids))
 
 doc_count = 0
+skipped_doc_count = 0
 
 threading_lock = threading.Lock()
 
