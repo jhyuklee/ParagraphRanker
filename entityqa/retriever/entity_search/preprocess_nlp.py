@@ -23,14 +23,24 @@ class DocDB(object):
         self.path = db_path
         self.connection = sqlite3.connect(self.path, check_same_thread=False)
 
+        # list columns
         cursor = self.connection.cursor()
-        # # add 'p_ner_spacy' column to wiki_db
-        # cursor.execute("ALTER TABLE documents ADD p_ner_spacy TEXT")
         cursor.execute("PRAGMA table_info(documents)")
-        print(cursor.fetchall())
+        cols = cursor.fetchall()
+        print(cols)
         cursor.close()
 
-        # add index
+        found_ner_col = False
+        for col in cols:
+            if ner_col_name == col[1]:
+                found_ner_col = True
+        if not found_ner_col:
+            # add NER column to wiki_db
+            cursor = self.connection.cursor()
+            cursor.execute(
+                "ALTER TABLE documents ADD {} TEXT".format(ner_col_name))
+
+        # add index for speed
         # cursor = wiki_db.connection.cursor()
         # cursor.execute("CREATE INDEX idx ON documents(id)")
         # cursor.close()
@@ -72,7 +82,7 @@ class DocDB(object):
         """Fetch the raw text of the doc for 'doc_id'."""
         cursor = self.connection.cursor()
         cursor.execute(
-            "SELECT p_ner_spacy FROM documents WHERE id = ?",
+            "SELECT {} FROM documents WHERE id = ?".format(ner_col_name),
             (unicodedata.normalize('NFD', doc_id),)
         )
         result = cursor.fetchone()
@@ -82,7 +92,7 @@ class DocDB(object):
     def update_ner_doc(self, doc_id, v):
         cursor = self.connection.cursor()
         cursor.execute(
-            "UPDATE documents SET p_ner_spacy=? WHERE id = ?",
+            "UPDATE documents SET {}=? WHERE id = ?".format(ner_col_name),
             (v, unicodedata.normalize('NFD', doc_id))
         )
         cursor.close()
@@ -135,7 +145,8 @@ def preprocess_worker(doc_id):
             wiki_db.connection.commit()
 
 
-n_threads = 8
+n_threads = 4
+ner_col_name = 'p_ner_spacy'
 wiki_db = DocDB(
     db_path=os.path.join(os.path.expanduser('~'), 'common', 'wikipedia',
                          'docs.db'))
@@ -170,6 +181,9 @@ def main():
         doc_queue.put(doc_id)
 
     doc_queue.join()
+
+    wiki_db.connection.commit()
+    print('DB commit')
 
     print(threading.enumerate())
 
