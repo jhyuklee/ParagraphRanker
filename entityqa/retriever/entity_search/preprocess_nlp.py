@@ -116,38 +116,37 @@ def preprocess_worker(doc_id):
         # with threading_lock:
         #     print('Already processed doc', doc_id)
         skipped_doc_count += 1
-        return
+    else:
+        doc_text = wiki_db.get_doc_text(doc_id)
+        paragraph_infos = list()
 
-    doc_text = wiki_db.get_doc_text(doc_id)
-    paragraph_infos = list()
+        paragraphs = doc_text.split('\n\n')
+        for p_idx, p in enumerate(paragraphs):
+            p_doc = nlp_spacy(p.strip())  # trim and nlp
 
-    paragraphs = doc_text.split('\n\n')
-    for p_idx, p in enumerate(paragraphs):
-        p_doc = nlp_spacy(p.strip())  # trim and nlp
+            # NER
+            ents = list()
+            for entity in p_doc.ents:
+                ents.append({'text': entity.text,
+                             'start_char': entity.start_char,
+                             'end_char': entity.end_char,
+                             'label_': entity.label_})
 
-        # NER
-        ents = list()
-        for entity in p_doc.ents:
-            ents.append({'text': entity.text,
-                         'start_char': entity.start_char,
-                         'end_char': entity.end_char,
-                         'label_': entity.label_})
+            paragraph_info = {
+                'text': p,
+                'ents': ents
+            }
+            paragraph_infos.append(paragraph_info)
 
-        paragraph_info = {
-            'text': p,
-            'ents': ents
-        }
-        paragraph_infos.append(paragraph_info)
+        with threading_lock:
+            wiki_db.update_ner_doc(doc_id,
+                                   json.dumps({'paragraphs': paragraph_infos}))
 
-    with threading_lock:
-        wiki_db.update_ner_doc(doc_id,
-                               json.dumps({'paragraphs': paragraph_infos}))
-
-        doc_count += 1
-        if doc_count % 1000 == 0:
-            print(datetime.now(), doc_count,
-                  '(skipped {})'.format(skipped_doc_count))
-            wiki_db.connection.commit()
+            doc_count += 1
+            if doc_count % 2000 == 0:
+                print(datetime.now(), doc_count,
+                      '(skipped {})'.format(skipped_doc_count))
+                wiki_db.connection.commit()
 
 
 n_threads = 4
