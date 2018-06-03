@@ -39,11 +39,16 @@ class DocDB(object):
             cursor = self.connection.cursor()
             cursor.execute(
                 "ALTER TABLE documents ADD {} TEXT".format(ner_col_name))
+            cursor.close()
+            print('Added a column: {}'.format(ner_col_name))
 
-        # add index for speed
-        # cursor = wiki_db.connection.cursor()
-        # cursor.execute("CREATE INDEX idx ON documents(id)")
-        # cursor.close()
+        try:
+            # add index for speed
+            cursor = self.connection.cursor()
+            cursor.execute("CREATE INDEX idx ON documents(id)")
+            cursor.close()
+        except sqlite3.OperationalError as e:
+            print(e)
 
     def __enter__(self):
         return self
