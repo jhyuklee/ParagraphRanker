@@ -6,9 +6,11 @@ import time
 import threading
 import unicodedata
 from datetime import datetime
-from queue import Queue
+from queue import Queue, Empty
 
 
+# Ref.
+# https://docs.python.org/3/library/queue.html
 # https://www.ploggingdev.com/2017/01/multiprocessing-and-multithreading-in-python-3/
 
 # A copy of
@@ -110,35 +112,34 @@ def preprocess_worker(doc_id):
     global doc_count
     global skipped_doc_count
 
-    # skip already processed docs
-    doc_p_ents = wiki_db.get_doc_p_ents(doc_id)
-    if doc_p_ents is None:
-        # with threading_lock:
-        #     print('Already processed doc', doc_id)
-        skipped_doc_count += 1
-    else:
-        doc_text = wiki_db.get_doc_text(doc_id)
-        paragraph_infos = list()
+    with threading_lock:
+        # skip already processed docs
+        doc_p_ents = wiki_db.get_doc_p_ents(doc_id)
+        if doc_p_ents is None:
+            # with threading_lock:
+            #     print('Already processed doc', doc_id)
+            skipped_doc_count += 1
+        else:
+            doc_text = wiki_db.get_doc_text(doc_id)
+            paragraph_infos = list()
 
-        paragraphs = doc_text.split('\n\n')
-        for p_idx, p in enumerate(paragraphs):
-            p_doc = nlp_spacy(p.strip())  # trim and nlp
+            paragraphs = doc_text.split('\n\n')
+            for p_idx, p in enumerate(paragraphs):
+                p_doc = nlp_spacy(p.strip())  # trim and nlp
 
-            # NER
-            ents = list()
-            for entity in p_doc.ents:
-                ents.append({'text': entity.text,
-                             'start_char': entity.start_char,
-                             'end_char': entity.end_char,
-                             'label_': entity.label_})
+                # NER
+                ents = list()
+                for entity in p_doc.ents:
+                    ents.append({'text': entity.text,
+                                 'start_char': entity.start_char,
+                                 'end_char': entity.end_char,
+                                 'label_': entity.label_})
 
-            paragraph_info = {
-                'text': p,
-                'ents': ents
-            }
-            paragraph_infos.append(paragraph_info)
+                paragraph_infos.append({
+                    'text': p,
+                    'ents': ents
+                })
 
-        with threading_lock:
             wiki_db.update_ner_doc(doc_id,
                                    json.dumps({'paragraphs': paragraph_infos}))
 
@@ -167,29 +168,43 @@ threading_lock = threading.Lock()
 
 
 def main():
-    doc_queue = Queue()
-
     def process_queue():
         while True:
-            preprocess_worker(doc_queue.get())
-            doc_queue.task_done()
+            try:
+                item = q.get(block=False)
+                if item is None:
+                    break
+                preprocess_worker(item)
+            except Empty as e:
+                print('empty', e)
+            q.task_done()
 
+    q = Queue()
+    threads = []
     for i in range(n_threads):
         t = threading.Thread(target=process_queue)
         t.daemon = True
         t.start()
+        threads.append(t)
+
+    for doc_id in doc_ids:
+        q.put(doc_id)
 
     start = time.time()
 
-    for doc_id in doc_ids:
-        doc_queue.put(doc_id)
+    # block until all tasks are done
+    q.join()
 
-    doc_queue.join()
+    # stop workers
+    for i in range(n_threads):
+        q.put(None)
+    for t in threads:
+        t.join()
 
     wiki_db.connection.commit()
     print('DB commit')
 
-    print(threading.enumerate())
+    # print(threading.enumerate())
 
     print("Execution time = {0:.5f}".format(time.time() - start))
 
