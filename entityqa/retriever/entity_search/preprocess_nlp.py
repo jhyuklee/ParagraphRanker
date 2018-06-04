@@ -171,7 +171,7 @@ def main():
     def process_queue():
         while True:
             try:
-                item = q.get(block=False)
+                item = q.get(block=True)
                 if item is None:
                     break
                 preprocess_worker(item)
@@ -183,7 +183,6 @@ def main():
     threads = []
     for i in range(n_threads):
         t = threading.Thread(target=process_queue)
-        t.daemon = True
         t.start()
         threads.append(t)
 
