@@ -112,42 +112,42 @@ def preprocess_worker(doc_id):
     global doc_count
     global skipped_doc_count
 
-    with threading_lock:
-        # skip already processed docs
-        doc_p_ents = wiki_db.get_doc_p_ents(doc_id)
-        if doc_p_ents is None:
-            # with threading_lock:
-            #     print('Already processed doc', doc_id)
-            skipped_doc_count += 1
-        else:
-            doc_text = wiki_db.get_doc_text(doc_id)
-            paragraph_infos = list()
+    # with threading_lock:
+    # skip already processed docs
+    doc_p_ents = wiki_db.get_doc_p_ents(doc_id)
+    if doc_p_ents is None:
+        # with threading_lock:
+        #     print('Already processed doc', doc_id)
+        skipped_doc_count += 1
+    else:
+        doc_text = wiki_db.get_doc_text(doc_id)
+        paragraph_infos = list()
 
-            paragraphs = doc_text.split('\n\n')
-            for p_idx, p in enumerate(paragraphs):
-                p_doc = nlp_spacy(p.strip())  # trim and nlp
+        paragraphs = doc_text.split('\n\n')
+        for p_idx, p in enumerate(paragraphs):
+            p_doc = nlp_spacy(p.strip())  # trim and nlp
 
-                # NER
-                ents = list()
-                for entity in p_doc.ents:
-                    ents.append({'text': entity.text,
-                                 'start_char': entity.start_char,
-                                 'end_char': entity.end_char,
-                                 'label_': entity.label_})
+            # NER
+            ents = list()
+            for entity in p_doc.ents:
+                ents.append({'text': entity.text,
+                             'start_char': entity.start_char,
+                             'end_char': entity.end_char,
+                             'label_': entity.label_})
 
-                paragraph_infos.append({
-                    'text': p,
-                    'ents': ents
-                })
+            paragraph_infos.append({
+                'text': p,
+                'ents': ents
+            })
 
-            wiki_db.update_ner_doc(doc_id,
-                                   json.dumps({'paragraphs': paragraph_infos}))
+        wiki_db.update_ner_doc(doc_id,
+                               json.dumps({'paragraphs': paragraph_infos}))
 
-            doc_count += 1
-            if doc_count % 2000 == 0:
-                print(datetime.now(), doc_count,
-                      '(skipped {})'.format(skipped_doc_count))
-                wiki_db.connection.commit()
+        doc_count += 1
+        if doc_count % 1000 == 0:
+            print(datetime.now(), doc_count,
+                  '(skipped {})'.format(skipped_doc_count))
+            wiki_db.connection.commit()
 
 
 n_threads = 4
@@ -168,10 +168,10 @@ threading_lock = threading.Lock()
 
 
 def main():
-    def process_queue():
+    def worker():
         while True:
             try:
-                item = q.get(block=True, timeout=1.)
+                item = q.get(block=True, timeout=None)
                 if item is None:
                     break
                 preprocess_worker(item)
@@ -182,7 +182,8 @@ def main():
     q = Queue()
     threads = []
     for i in range(n_threads):
-        t = threading.Thread(target=process_queue)
+        t = threading.Thread(target=worker)
+        t.daemon = True
         t.start()
         threads.append(t)
 
