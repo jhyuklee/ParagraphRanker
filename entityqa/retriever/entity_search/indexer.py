@@ -5,10 +5,12 @@ import json
 from java.nio.file import Paths
 from org.apache.lucene.analysis.miscellaneous import LimitTokenCountAnalyzer
 from org.apache.lucene.analysis.standard import StandardAnalyzer
-from org.apache.lucene.document import Document, Field, FieldType, IntPoint
+from org.apache.lucene.document import Document, Field, FieldType, IntPoint, \
+    BinaryDocValuesField, StoredField
 from org.apache.lucene.index import \
-    FieldInfo, IndexWriter, IndexWriterConfig, IndexOptions
+    DocValuesType, FieldInfo, IndexWriter, IndexWriterConfig, IndexOptions
 from org.apache.lucene.store import SimpleFSDirectory
+from org.apache.lucene.util import BytesRef
 import sys
 import time
 import threading
@@ -57,6 +59,11 @@ class IndexFiles(object):
         t2.setTokenized(True)
         t2.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS)
 
+        bin_dv_ft = FieldType()
+        bin_dv_ft.setDocValuesType(DocValuesType.BINARY)
+        bin_dv_ft.setStored(True)
+        bin_dv_ft.setIndexOptions(IndexOptions.DOCS)
+
         num_paragraphs = 0
         num_empty_paragraphs = 0
 
@@ -84,6 +91,7 @@ class IndexFiles(object):
 
                 # Named-entities
                 ents = p['ents']
+                eidx_list = list()
                 if len(ents) > 0:
                     for entity in ents:
 
@@ -103,11 +111,19 @@ class IndexFiles(object):
                         lucene_doc.add(Field("entity_end",
                                              str(entity['end_char']),
                                              t1))
+                        # eidx_list.append((eidx, hash(entity['label_'])))
+                        eidx_list.append((eidx, 0))  # TODO set en entity type id
+                lucene_doc.add(
+                    BinaryDocValuesField("eqa_bin",
+                                         BytesRef(get_binary4dvs(eidx_list))))
+                lucene_doc.add(
+                    StoredField("eqa_bin_store",
+                                BytesRef(get_binary4dvs(eidx_list))))
 
                 self.writer.addDocument(lucene_doc)
                 num_paragraphs += 1
 
-                if num_paragraphs % 1000 == 0:
+                if num_paragraphs % 10000 == 0:
                     print(datetime.now(), 'Added #paragraphs', num_paragraphs)
 
         print('#paragraphs', num_paragraphs)
@@ -126,6 +142,21 @@ class IndexFiles(object):
             self.writer.addDocument(entity_doc)
 
         print('#entities', len(self.entity2idx) - 1)
+
+
+def get_binary4dvs(eidx_list):
+    binary = bytes()
+    ent_size = len(eidx_list)
+    if ent_size == 0:
+        return binary
+    elif ent_size == 1:  # single
+        binary += (ent_size << 1).to_bytes(2, byteorder=sys.byteorder)
+    else:  # multiple
+        binary += ((ent_size << 1) + 1).to_bytes(2, byteorder=sys.byteorder)
+    for eidx, etype in eidx_list:
+        binary += eidx.to_bytes(4, byteorder=sys.byteorder)
+        binary += etype.to_bytes(4, byteorder=sys.byteorder)
+    return binary
 
 
 class Ticker(object):
