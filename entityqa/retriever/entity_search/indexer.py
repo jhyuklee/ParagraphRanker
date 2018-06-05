@@ -111,8 +111,7 @@ class IndexFiles(object):
                         lucene_doc.add(Field("entity_end",
                                              str(entity['end_char']),
                                              t1))
-                        # eidx_list.append((eidx, hash(entity['label_'])))
-                        eidx_list.append((eidx, 0))  # TODO set en entity type id
+                        eidx_list.append((eidx, entity['label']))
                 lucene_doc.add(
                     BinaryDocValuesField("eqa_bin",
                                          BytesRef(get_binary4dvs(eidx_list))))
@@ -155,7 +154,7 @@ def get_binary4dvs(eidx_list):
         binary += ((ent_size << 1) + 1).to_bytes(2, byteorder=sys.byteorder)
     for eidx, etype in eidx_list:
         binary += eidx.to_bytes(4, byteorder=sys.byteorder)
-        binary += etype.to_bytes(4, byteorder=sys.byteorder)
+        binary += etype.to_bytes(2, byteorder=sys.byteorder)
     return binary
 
 
