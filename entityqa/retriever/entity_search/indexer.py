@@ -12,7 +12,7 @@ from org.apache.lucene.store import SimpleFSDirectory
 import sys
 import time
 import threading
-from .preprocess_nlp import DocDB
+import preprocess_nlp
 
 # Ref.
 # http://svn.apache.org/viewvc/lucene/pylucene/trunk/samples/IndexFiles.py
@@ -31,9 +31,11 @@ class IndexFiles(object):
         config.setOpenMode(IndexWriterConfig.OpenMode.CREATE)
         self.writer = IndexWriter(store, config)
 
-        self.wiki_db = DocDB(
-            db_path=os.path.join(os.path.expanduser('~'), 'common', 'wikipedia',
-                                 'docs.db'))
+        self.wiki_db = preprocess_nlp.wiki_db
+        self.entity2idx = dict()
+        self.idx2entity = dict()
+        self.entity2idx['UNK'] = 0
+        self.idx2entity[0] = 'UNK'
 
         self.index_docs()
         ticker = Ticker()
@@ -76,7 +78,7 @@ class IndexFiles(object):
                     continue
 
                 lucene_doc = Document()
-                lucene_doc.add(Field("wiki_doc_id", doc_dict['id'], t1))
+                lucene_doc.add(Field("wiki_doc_id", doc_id, t1))
                 lucene_doc.add(Field("p_idx", str(p_idx), t1))
                 lucene_doc.add(Field("content", p['text'], t2))
 
@@ -84,9 +86,17 @@ class IndexFiles(object):
                 ents = p['ents']
                 if len(ents) > 0:
                     for entity in ents:
-                        lucene_doc.add(Field("entity", entity['text'], t2))
-                        lucene_doc.add(Field("entity_label",
-                                             entity['label_'], t2))
+
+                        entity_key = entity['text'] + '\t' + entity['label_']
+
+                        eidx = self.entity2idx.get(entity_key)
+                        if eidx is None:
+                            eidx = len(self.entity2idx)
+                            self.entity2idx[entity_key] = eidx
+                            self.idx2entity[eidx] = entity_key
+
+                        lucene_doc.add(Field("entityid", str(eidx), t2))
+                        lucene_doc.add(Field("entity", entity_key, t2))
                         lucene_doc.add(Field("entity_start",
                                              str(entity['start_char']),
                                              t1))
@@ -97,11 +107,25 @@ class IndexFiles(object):
                 self.writer.addDocument(lucene_doc)
                 num_paragraphs += 1
 
-            if (d_idx + 1) % 10000 == 0:
-                print(datetime.now(), 'Added #docs', d_idx + 1,
-                      '#paragraphs', num_paragraphs)
+                if num_paragraphs % 1000 == 0:
+                    print(datetime.now(), 'Added #paragraphs', num_paragraphs)
 
+        print('#paragraphs', num_paragraphs)
         print('#empty_paragraphs', num_empty_paragraphs)
+
+        print('Adding entity docs..')
+        for entity in self.entity2idx:
+            # skip UNK
+            if self.entity2idx[entity] == 0:
+                continue
+            ename, etype = entity.split('\t')
+            entity_doc = Document()
+            entity_doc.add(Field("name", ename, t1))
+            entity_doc.add(Field("type", etype, t1))
+            entity_doc.add(Field("eid", str(self.entity2idx[entity]), t1))
+            self.writer.addDocument(entity_doc)
+
+        print('#entities', len(self.entity2idx) - 1)
 
 
 class Ticker(object):

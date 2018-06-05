@@ -171,7 +171,7 @@ def main():
     def process_queue():
         while True:
             try:
-                item = q.get(block=True)
+                item = q.get(block=True, timeout=1.)
                 if item is None:
                     break
                 preprocess_worker(item)
@@ -195,6 +195,7 @@ def main():
     q.join()
 
     # stop workers
+    print('Stopping..')
     for i in range(n_threads):
         q.put(None)
     for t in threads:
