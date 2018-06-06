@@ -38,6 +38,7 @@ class IndexFiles(object):
         self.idx2entity = dict()
         self.entity2idx['UNK'] = 0
         self.idx2entity[0] = 'UNK'
+        self.entity_dict = dict()
 
         self.index_docs()
         ticker = Ticker()
@@ -102,6 +103,9 @@ class IndexFiles(object):
                             eidx = len(self.entity2idx)
                             self.entity2idx[entity_key] = eidx
                             self.idx2entity[eidx] = entity_key
+                            self.entity_dict[eidx] = \
+                                (entity['text'], entity['label_'],
+                                 entity['label'])
 
                         lucene_doc.add(Field("entityid", str(eidx), t2))
                         lucene_doc.add(Field("entity", entity_key, t2))
@@ -118,6 +122,9 @@ class IndexFiles(object):
                 lucene_doc.add(
                     StoredField("eqa_bin_store",
                                 BytesRef(get_binary4dvs(eidx_list))))
+                lucene_doc.add(
+                    Field("eqa_bin2",
+                          str(get_binary4dvs(eidx_list), "utf-8"), bin_dv_ft))
 
                 self.writer.addDocument(lucene_doc)
                 num_paragraphs += 1
@@ -129,32 +136,36 @@ class IndexFiles(object):
         print('#empty_paragraphs', num_empty_paragraphs)
 
         print('Adding entity docs..')
-        for entity in self.entity2idx:
+        for entity_idx in self.entity_dict:
             # skip UNK
-            if self.entity2idx[entity] == 0:
+            if entity_idx == self.entity2idx['UNK']:
                 continue
-            ename, etype = entity.split('\t')
+            ename, etype, etype_id = self.entity_dict[entity_idx]
             entity_doc = Document()
             entity_doc.add(Field("name", ename, t1))
             entity_doc.add(Field("type", etype, t1))
-            entity_doc.add(Field("eid", str(self.entity2idx[entity]), t1))
+            entity_doc.add(Field("eid", str(entity_idx), t1))
+            entity_doc.add(Field("etid", str(etype_id), t1))
             self.writer.addDocument(entity_doc)
 
         print('#entities', len(self.entity2idx) - 1)
 
 
 def get_binary4dvs(eidx_list):
+    # TODO apply variable-width integer
     binary = bytes()
     ent_size = len(eidx_list)
     if ent_size == 0:
         return binary
-    elif ent_size == 1:  # single
-        binary += (ent_size << 1).to_bytes(2, byteorder=sys.byteorder)
-    else:  # multiple
-        binary += ((ent_size << 1) + 1).to_bytes(2, byteorder=sys.byteorder)
-    for eidx, etype in eidx_list:
-        binary += eidx.to_bytes(4, byteorder=sys.byteorder)
+    elif ent_size == 1:  # single -> even
+        eidx, etype = eidx_list[0]
+        binary += (eidx << 1).to_bytes(4, byteorder=sys.byteorder)
         binary += etype.to_bytes(2, byteorder=sys.byteorder)
+    else:  # multiple -> odd
+        binary += ((ent_size << 1) + 1).to_bytes(2, byteorder=sys.byteorder)
+        for eidx, etype in eidx_list:
+            binary += eidx.to_bytes(4, byteorder=sys.byteorder)
+            binary += etype.to_bytes(2, byteorder=sys.byteorder)
     return binary
 
 
