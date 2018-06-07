@@ -15,6 +15,7 @@ import sys
 import time
 import threading
 import preprocess_nlp
+from utils import write_vint
 
 # Ref.
 # http://svn.apache.org/viewvc/lucene/pylucene/trunk/samples/IndexFiles.py
@@ -94,6 +95,11 @@ class IndexFiles(object):
                 ents = p['ents']
                 eidx_list = list()
                 if len(ents) > 0:
+
+                    entity_idxes = list()
+                    entity_type_ids = list()
+                    entity_positions = list()
+
                     for entity in ents:
 
                         entity_key = entity['text'] + '\t' + entity['label_']
@@ -107,15 +113,29 @@ class IndexFiles(object):
                                 (entity['text'], entity['label_'],
                                  entity['label'])
 
-                        lucene_doc.add(Field("entityid", str(eidx), t2))
-                        lucene_doc.add(Field("entity", entity_key, t2))
-                        lucene_doc.add(Field("entity_start",
-                                             str(entity['start_char']),
-                                             t1))
-                        lucene_doc.add(Field("entity_end",
-                                             str(entity['end_char']),
-                                             t1))
+                        entity_idxes.append(eidx)
+                        entity_type_ids.append(entity['label'])
+                        entity_positions.append((entity['start_char'],
+                                                 entity['end_char']))
+
                         eidx_list.append((eidx, entity['label']))
+
+                    lucene_doc.add(Field("entity_id",
+                                         '\t'.join([str(eidx)
+                                                    for eidx in entity_idxes]),
+                                         t2))
+                    lucene_doc.add(
+                        Field("entity_type_id",
+                              '\t'.join([str(etid)
+                                         for etid in entity_type_ids]),
+                              t2))
+                    lucene_doc.add(
+                        Field("entity_position",
+                              '\t'.join(['{},{}'.format(start_char, end_char)
+                                         for start_char, end_char
+                                         in entity_positions]),
+                              t1))
+
                 lucene_doc.add(
                     BinaryDocValuesField("eqa_bin",
                                          BytesRef(get_binary4dvs(eidx_list))))
@@ -152,20 +172,19 @@ class IndexFiles(object):
 
 
 def get_binary4dvs(eidx_list):
-    # TODO apply variable-width integer
     binary = bytes()
     ent_size = len(eidx_list)
     if ent_size == 0:
         return binary
     elif ent_size == 1:  # single -> even
         eidx, etype = eidx_list[0]
-        binary += (eidx << 1).to_bytes(4, byteorder=sys.byteorder)
-        binary += etype.to_bytes(2, byteorder=sys.byteorder)
+        binary += write_vint(eidx << 1)
+        binary += write_vint(etype)
     else:  # multiple -> odd
-        binary += ((ent_size << 1) + 1).to_bytes(2, byteorder=sys.byteorder)
+        binary += write_vint((ent_size << 1) + 1)
         for eidx, etype in eidx_list:
-            binary += eidx.to_bytes(4, byteorder=sys.byteorder)
-            binary += etype.to_bytes(2, byteorder=sys.byteorder)
+            binary += write_vint(eidx)
+            binary += write_vint(etype)
     return binary
 
 
