@@ -97,7 +97,7 @@ class IndexFiles(object):
                     continue
 
                 lucene_doc = Document()
-                lucene_doc.add(Field("wiki_doc_id", doc_id, t1))
+                lucene_doc.add(Field("wiki_doc_id", doc_id, t2_tk))
                 lucene_doc.add(Field("p_idx", str(p_idx), t1))
                 lucene_doc.add(Field("content", p['text'], t2_tk))
 
@@ -111,6 +111,10 @@ class IndexFiles(object):
                     entity_positions = list()
 
                     for entity in ents:
+
+                        if 'label' not in entity:
+                            print(doc_id)
+                            break
 
                         entity_key = entity['text'] + '\t' + entity['label_']
 
@@ -130,23 +134,24 @@ class IndexFiles(object):
 
                         ent_set.add((eidx, entity['label']))
 
-                    lucene_doc.add(
-                        Field("entity_id",
-                              '\t'.join([str(eidx)
-                                         for eidx in entity_idx_set]),
-                              t2_tk))
-                    lucene_doc.add(
-                        Field("entity_type_id",
-                              '\t'.join([str(etid)
-                                         for etid in entity_type_id_set]),
-                              t2_tk))
-                    lucene_doc.add(
-                        Field("entity_position",
-                              '\t'.join(['{},{},{}'.
-                                        format(eidx, start_char, end_char)
-                                         for eidx, start_char, end_char
-                                         in entity_positions]),
-                              t1))
+                    if len(entity_idx_set) > 0:
+                        lucene_doc.add(
+                            Field("entity_id",
+                                  '\t'.join([str(eidx)
+                                             for eidx in entity_idx_set]),
+                                  t2_tk))
+                        lucene_doc.add(
+                            Field("entity_type_id",
+                                  '\t'.join([str(etid)
+                                             for etid in entity_type_id_set]),
+                                  t2_tk))
+                        lucene_doc.add(
+                            Field("entity_position",
+                                  '\t'.join(['{},{},{}'.
+                                            format(eidx, start_char, end_char)
+                                             for eidx, start_char, end_char
+                                             in entity_positions]),
+                                  t1))
 
                 lucene_doc.add(
                     BinaryDocValuesField("eqa_bin",

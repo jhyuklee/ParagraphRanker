@@ -130,56 +130,45 @@ def preprocess_worker(doc_id):
     global doc_ids
     global nlp_spacy
     global doc_count
-    global skipped_doc_count
 
-    # skip already processed docs
     with threading_lock:
-        doc_p_ents = wiki_db.get_doc_p_ents(doc_id)
+        doc_text = wiki_db.get_doc_text(doc_id)
 
-    if doc_p_ents is None:
-        skipped_doc_count += 1
-    else:
+    paragraph_infos = list()
+
+    paragraphs = doc_text.split('\n\n')
+    for p_idx, p in enumerate(paragraphs):
+        p_doc = nlp_spacy(p.strip())  # trim and nlp
+
+        # NER
+        ents = list()
+        for entity in p_doc.ents:
+            ents.append({'text': entity.text,
+                         'start_char': entity.start_char,
+                         'end_char': entity.end_char,
+                         'label_': entity.label_,
+                         'label': entity.label})
+
+        paragraph_infos.append({
+            'text': p,
+            'ents': ents
+        })
+
+    with threading_lock:
+        wiki_db.update_ner_doc(doc_id,
+                               json.dumps({'paragraphs': paragraph_infos}))
+
+    doc_count += 1
+    if doc_count % 1000 == 0:
         with threading_lock:
-            doc_text = wiki_db.get_doc_text(doc_id)
-
-        paragraph_infos = list()
-
-        paragraphs = doc_text.split('\n\n')
-        for p_idx, p in enumerate(paragraphs):
-            p_doc = nlp_spacy(p.strip())  # trim and nlp
-
-            # NER
-            ents = list()
-            for entity in p_doc.ents:
-                ents.append({'text': entity.text,
-                             'start_char': entity.start_char,
-                             'end_char': entity.end_char,
-                             'label_': entity.label_,
-                             'label': entity.label})
-
-            paragraph_infos.append({
-                'text': p,
-                'ents': ents
-            })
-
-        with threading_lock:
-            wiki_db.update_ner_doc(doc_id,
-                                   json.dumps({'paragraphs': paragraph_infos}))
-
-        doc_count += 1
-        if doc_count % 2000 == 0:
-            with threading_lock:
-                print(datetime.now(), doc_count,
-                      '(skipped {})'.format(skipped_doc_count)
-                      if skipped_doc_count > 0 else '')
-                wiki_db.connection.commit()
+            print(datetime.now(), doc_count)
+            wiki_db.connection.commit()
 
 
 wiki_db = None
 doc_ids = None
 nlp_spacy = None
 doc_count = 0
-skipped_doc_count = 0
 
 threading_lock = threading.Lock()
 
@@ -189,7 +178,7 @@ def main():
     global doc_ids
     global nlp_spacy
 
-    n_threads = 8
+    n_threads = 4
 
     # python3 -m spacy download en_core_web_lg
     nlp_spacy = spacy.load('en_core_web_lg', disable=['parser', 'tagger'])
