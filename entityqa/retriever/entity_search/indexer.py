@@ -14,7 +14,7 @@ from org.apache.lucene.util import BytesRef
 import sys
 import time
 import threading
-import preprocess_nlp
+from preprocess_nlp import DocDB
 from utils import write_vint
 
 # Ref.
@@ -34,7 +34,12 @@ class IndexFiles(object):
         config.setOpenMode(IndexWriterConfig.OpenMode.CREATE)
         self.writer = IndexWriter(store, config)
 
-        self.wiki_db = preprocess_nlp.wiki_db
+        self.wiki_db = DocDB(
+            db_path=os.path.join('/media/donghyeonkim/f7c53837-2156-4793-b2b1-4b0578dffef1/wikipedia/2M',
+                                 'docs.db'))
+        print('Getting docs..')
+        self.doc_ids = self.wiki_db.get_ner_doc_ids()
+        print('# wiki docs', len(self.doc_ids))
         self.entity2idx = dict()
         self.idx2entity = dict()
         self.entity2idx['UNK'] = 0
@@ -70,8 +75,7 @@ class IndexFiles(object):
         num_empty_paragraphs = 0
 
         # get docs from our sqlite db
-        doc_ids = self.wiki_db.get_doc_ids()
-        for d_idx, doc_id in enumerate(doc_ids):
+        for d_idx, doc_id in enumerate(self.doc_ids):
             doc_p_ents = self.wiki_db.get_doc_p_ents(doc_id)
 
             if doc_p_ents is None:
