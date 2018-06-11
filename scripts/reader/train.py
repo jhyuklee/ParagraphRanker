@@ -16,15 +16,9 @@ import subprocess
 import logging
 
 
-import utils, vector, config, data
-from model import DocReader
-from pathlib import PosixPath
-from os.path import expanduser
-
-MULTIQA_PATH = (
-    os.path.join(PosixPath(__file__).absolute().parents[2].as_posix(), 'data'),
-    PosixPath(__file__).absolute().parents[1].as_posix()
-)
+from drqa.reader import utils, vector, config, data
+from drqa.reader import DocReader
+from drqa import DATA_DIR as DRQA_DATA
 
 logger = logging.getLogger()
 
@@ -35,9 +29,9 @@ logger = logging.getLogger()
 
 
 # Defaults
-DATA_DIR = os.path.join(MULTIQA_PATH[0], 'datasets')
-EMBED_DIR = os.path.join(expanduser("~"), 'datasets/glove/')
-MODEL_DIR = os.path.join(MULTIQA_PATH[1], 'reader/results/')
+DATA_DIR = os.path.join(DRQA_DATA, 'datasets')
+MODEL_DIR = '/tmp/drqa-models/'
+EMBED_DIR = os.path.join(DRQA_DATA, 'embeddings')
 
 def str2bool(v):
     return v.lower() in ('yes', 'true', 't', '1', 'y')
@@ -78,18 +72,10 @@ def add_train_args(parser):
     files.add_argument('--data-dir', type=str, default=DATA_DIR,
                        help='Directory of training/validation data')
     files.add_argument('--train-file', type=str,
-                       default='SQuAD-v1.1-train-processed-simple.txt',
-                       # default='distant/SQuAD-v1.1-train.dstrain',
-                       # default='distant/CuratedTrec-train.dstrain',
-                       # default='distant/WebQuestions-train.dstrain',
-                       # default='distant/WikiMovies-train.dstrain',
+                       default='SQuAD-v1.1-train-processed-corenlp.txt',
                        help='Preprocessed train file')
     files.add_argument('--dev-file', type=str,
-                       default='SQuAD-v1.1-dev-processed-simple.txt',
-                       # default='distant/SQuAD-v1.1-train.dsdev',
-                       # default='distant/CuratedTrec-train.dsdev',
-                       # default='distant/WebQuestions-train.dsdev',
-                       # default='distant/WikiMovies-train.dsdev',
+                       default='SQuAD-v1.1-dev-processed-corenlp.txt',
                        help='Preprocessed dev file')
     files.add_argument('--dev-json', type=str, default='SQuAD-v1.1-dev.json',
                        help=('Unprocessed dev file to run validation '
@@ -97,7 +83,7 @@ def add_train_args(parser):
     files.add_argument('--embed-dir', type=str, default=EMBED_DIR,
                        help='Directory of pre-trained embedding files')
     files.add_argument('--embedding-file', type=str,
-                       default='glove.6B.300d.txt',
+                       default='glove.840B.300d.txt',
                        help='Space-separated pretrained embeddings file')
 
     # Saving + loading
@@ -448,7 +434,7 @@ def main(args):
     logger.info('Make data loaders')
     train_dataset = data.ReaderDataset(train_exs, model, single_answer=True)
     if args.sort_by_len:
-        train_sampler = data.ReaderBatchSampler(train_dataset.lengths(),
+        train_sampler = data.SortedBatchSampler(train_dataset.lengths(),
                                                 args.batch_size,
                                                 shuffle=True)
     else:
@@ -458,12 +444,12 @@ def main(args):
         batch_size=args.batch_size,
         sampler=train_sampler,
         num_workers=args.data_workers,
-        collate_fn=vector.reader_batchify,
+        collate_fn=vector.batchify,
         pin_memory=args.cuda,
     )
     dev_dataset = data.ReaderDataset(dev_exs, model, single_answer=False)
     if args.sort_by_len:
-        dev_sampler = data.ReaderBatchSampler(dev_dataset.lengths(),
+        dev_sampler = data.SortedBatchSampler(dev_dataset.lengths(),
                                               args.test_batch_size,
                                               shuffle=False)
     else:
@@ -473,7 +459,7 @@ def main(args):
         batch_size=args.test_batch_size,
         sampler=dev_sampler,
         num_workers=args.data_workers,
-        collate_fn=vector.reader_batchify,
+        collate_fn=vector.batchify,
         pin_memory=args.cuda,
     )
 
