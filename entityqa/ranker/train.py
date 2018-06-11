@@ -44,7 +44,7 @@ logger = logging.getLogger()
 # Defaults
 DATA_DIR = os.path.join(MULTIQA_PATH[0], 'datasets')
 MODEL_DIR = os.path.join(MULTIQA_PATH[1], 'ranker/results/')
-EMBED_DIR = os.path.join(expanduser("~"), 'common/glove/')
+EMBED_DIR = os.path.join(expanduser("~"), 'datasets/glove/')
 
 
 def str2bool(v):
@@ -76,8 +76,6 @@ def add_train_args(parser):
                          help='Batch size for training')
     runtime.add_argument('--test-batch-size', type=int, default=128,
                          help='Batch size during validation/testing')
-    runtime.add_argument('--predict-batch-size', type=int, default=100,
-                         help='Batch size for question prediction')
 
     # Files
     files = parser.add_argument_group('Filesystem')
@@ -109,7 +107,7 @@ def add_train_args(parser):
     files.add_argument('--embed-dir', type=str, default=EMBED_DIR,
                        help='Directory of pre-trained embedding files')
     files.add_argument('--embedding-file', type=str,
-                       default='glove.840B.300d.txt',
+                       default='glove.6B.300d.txt',
                        help='Space-separated pretrained embeddings file')
     files.add_argument('--candidate-file', type=str, default=None,
                         help=("List of candidates to restrict predictions to, "
@@ -284,17 +282,18 @@ def encode_docs_qs(args, data_loader, model, global_stats, mode):
     examples = 0
     documents = []
     questions = []
-    for ex in data_loader:
-        docs, qs = model.encode(ex)
-        batch_size = ex[0].size(0)
-        examples += batch_size
+    with torch.no_grad():
+        for ex in data_loader:
+            docs, qs = model.encode(ex)
+            batch_size = ex[0].size(0)
+            examples += batch_size
 
-        # Save encoded documents and questions
-        documents.append(docs)
-        questions.append(qs)
+            # Save encoded documents and questions
+            documents.append(docs)
+            questions.append(qs)
 
-    documents = torch.cat(documents, 0)
-    questions = torch.cat(questions, 0)
+        documents = torch.cat(documents, 0)
+        questions = torch.cat(questions, 0)
     logger.info('%s valid encoding: Epoch = %d | encoded = %d | ' %
                 (mode, global_stats['epoch'], documents.size(0)) +
                 'examples = %d | ' % (examples) +
@@ -478,7 +477,6 @@ def main(args):
     # Ranker final evaluation
     docs, qs = encode_docs_qs(args, dev_loader, model, stats, mode='dev')
     result = rank_docs(args, docs, qs, stats, mode='dev')
-
 
 
 if __name__ == '__main__':

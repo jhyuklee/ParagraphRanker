@@ -219,6 +219,7 @@ def init(tokenizer_class, tokenizer_opts, db_class, db_opts, candidates=None):
     PROCESS_CANDS = candidates
 
 
+'''
 def fetch_text(doc_id):
     global PROCESS_DB
     return PROCESS_DB.get_doc_text(doc_id)
@@ -227,6 +228,7 @@ def fetch_text(doc_id):
 def tokenize_text(text):
     global PROCESS_TOK
     return PROCESS_TOK.tokenize(text)
+'''
 
 
 def regex_match(text, pattern):
