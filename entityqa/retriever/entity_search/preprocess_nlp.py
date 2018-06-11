@@ -125,7 +125,7 @@ class DocDB(object):
         cursor.close()
 
 
-def preprocess_worker(doc_id):
+def preprocess_worker(doc_id, log_interval=1000):
     global wiki_db
     global doc_ids
     global nlp_spacy
@@ -159,10 +159,12 @@ def preprocess_worker(doc_id):
                                json.dumps({'paragraphs': paragraph_infos}))
 
     doc_count += 1
-    if doc_count % 1000 == 0:
+    if doc_count % log_interval == 0:
         with threading_lock:
             print(datetime.now(), doc_count)
-            wiki_db.connection.commit()
+
+            if doc_count % (3 * log_interval) == 0:
+                wiki_db.connection.commit()
 
 
 wiki_db = None
@@ -178,7 +180,7 @@ def main():
     global doc_ids
     global nlp_spacy
 
-    n_threads = 4
+    n_threads = 8
 
     # python3 -m spacy download en_core_web_lg
     nlp_spacy = spacy.load('en_core_web_lg', disable=['parser', 'tagger'])
@@ -204,6 +206,7 @@ def main():
     wiki_db = DocDB(
         db_path=os.path.join(os.path.expanduser('~'), 'common', 'wikipedia',
                              'docs.db'))
+    print('Getting doc ids..')
     doc_ids = wiki_db.get_no_ner_doc_ids()
     print('# wiki docs', len(doc_ids))
     for doc_id in doc_ids:

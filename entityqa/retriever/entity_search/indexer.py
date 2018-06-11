@@ -37,11 +37,6 @@ class IndexFiles(object):
         self.wiki_db = DocDB(
             db_path=os.path.join(os.path.expanduser('~'), 'common', 'wikipedia',
                                  'docs.db'))
-        # self.wiki_db = DocDB(
-        #     db_path=os.path.join(
-        #         'media', 'donghyeonkim',
-        #         'f7c53837-2156-4793-b2b1-4b0578dffef1',
-        #         'wikipedia', '2M', 'docs.db'))
 
         print('Getting docs..')
         self.doc_ids = self.wiki_db.get_ner_doc_ids()
@@ -207,7 +202,6 @@ def get_binary4dvs(ent_set):
 
 
 class Ticker(object):
-
     def __init__(self):
         self.tick = True
 
