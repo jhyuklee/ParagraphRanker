@@ -14,7 +14,8 @@ from org.apache.lucene.util import BytesRef
 import sys
 import time
 import threading
-import preprocess_nlp
+from preprocess_nlp import DocDB
+from utils import write_vint
 
 # Ref.
 # http://svn.apache.org/viewvc/lucene/pylucene/trunk/samples/IndexFiles.py
@@ -33,11 +34,23 @@ class IndexFiles(object):
         config.setOpenMode(IndexWriterConfig.OpenMode.CREATE)
         self.writer = IndexWriter(store, config)
 
-        self.wiki_db = preprocess_nlp.wiki_db
+        self.wiki_db = DocDB(
+            db_path=os.path.join(os.path.expanduser('~'), 'common', 'wikipedia',
+                                 'docs.db'))
+        # self.wiki_db = DocDB(
+        #     db_path=os.path.join(
+        #         'media', 'donghyeonkim',
+        #         'f7c53837-2156-4793-b2b1-4b0578dffef1',
+        #         'wikipedia', '2M', 'docs.db'))
+
+        print('Getting docs..')
+        self.doc_ids = self.wiki_db.get_ner_doc_ids()
+        print('# wiki docs', len(self.doc_ids))
         self.entity2idx = dict()
         self.idx2entity = dict()
         self.entity2idx['UNK'] = 0
         self.idx2entity[0] = 'UNK'
+        self.entity_dict = dict()
 
         self.index_docs()
         ticker = Ticker()
@@ -52,12 +65,12 @@ class IndexFiles(object):
         t1 = FieldType()
         t1.setStored(True)
         t1.setTokenized(False)
-        t1.setIndexOptions(IndexOptions.DOCS_AND_FREQS)
+        t1.setIndexOptions(IndexOptions.DOCS)
 
-        t2 = FieldType()
-        t2.setStored(True)
-        t2.setTokenized(True)
-        t2.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS)
+        t2_tk = FieldType()
+        t2_tk.setStored(True)
+        t2_tk.setTokenized(True)
+        t2_tk.setIndexOptions(IndexOptions.DOCS_AND_FREQS)
 
         bin_dv_ft = FieldType()
         bin_dv_ft.setDocValuesType(DocValuesType.BINARY)
@@ -68,8 +81,7 @@ class IndexFiles(object):
         num_empty_paragraphs = 0
 
         # get docs from our sqlite db
-        doc_ids = self.wiki_db.get_doc_ids()
-        for d_idx, doc_id in enumerate(doc_ids):
+        for d_idx, doc_id in enumerate(self.doc_ids):
             doc_p_ents = self.wiki_db.get_doc_p_ents(doc_id)
 
             if doc_p_ents is None:
@@ -85,15 +97,24 @@ class IndexFiles(object):
                     continue
 
                 lucene_doc = Document()
-                lucene_doc.add(Field("wiki_doc_id", doc_id, t1))
+                lucene_doc.add(Field("wiki_doc_id", doc_id, t2_tk))
                 lucene_doc.add(Field("p_idx", str(p_idx), t1))
-                lucene_doc.add(Field("content", p['text'], t2))
+                lucene_doc.add(Field("content", p['text'], t2_tk))
 
                 # Named-entities
                 ents = p['ents']
-                eidx_list = list()
+                ent_set = set()
                 if len(ents) > 0:
+
+                    entity_idx_set = set()
+                    entity_type_id_set = set()
+                    entity_positions = list()
+
                     for entity in ents:
+
+                        if 'label' not in entity:
+                            print(doc_id)
+                            break
 
                         entity_key = entity['text'] + '\t' + entity['label_']
 
@@ -102,59 +123,86 @@ class IndexFiles(object):
                             eidx = len(self.entity2idx)
                             self.entity2idx[entity_key] = eidx
                             self.idx2entity[eidx] = entity_key
+                            self.entity_dict[eidx] = \
+                                (entity['text'], entity['label_'],
+                                 entity['label'])
 
-                        lucene_doc.add(Field("entityid", str(eidx), t2))
-                        lucene_doc.add(Field("entity", entity_key, t2))
-                        lucene_doc.add(Field("entity_start",
-                                             str(entity['start_char']),
-                                             t1))
-                        lucene_doc.add(Field("entity_end",
-                                             str(entity['end_char']),
-                                             t1))
-                        eidx_list.append((eidx, entity['label']))
+                        entity_idx_set.add(eidx)
+                        entity_type_id_set.add(entity['label'])
+                        entity_positions.append((eidx, entity['start_char'],
+                                                 entity['end_char']))
+
+                        ent_set.add((eidx, entity['label']))
+
+                    if len(entity_idx_set) > 0:
+                        lucene_doc.add(
+                            Field("entity_id",
+                                  '\t'.join([str(eidx)
+                                             for eidx in entity_idx_set]),
+                                  t2_tk))
+                        lucene_doc.add(
+                            Field("entity_type_id",
+                                  '\t'.join([str(etid)
+                                             for etid in entity_type_id_set]),
+                                  t2_tk))
+                        lucene_doc.add(
+                            Field("entity_position",
+                                  '\t'.join(['{},{},{}'.
+                                            format(eidx, start_char, end_char)
+                                             for eidx, start_char, end_char
+                                             in entity_positions]),
+                                  t1))
+
                 lucene_doc.add(
                     BinaryDocValuesField("eqa_bin",
-                                         BytesRef(get_binary4dvs(eidx_list))))
-                lucene_doc.add(
-                    StoredField("eqa_bin_store",
-                                BytesRef(get_binary4dvs(eidx_list))))
+                                         BytesRef(get_binary4dvs(ent_set))))
+                # # debug
+                # lucene_doc.add(
+                #     StoredField("eqa_bin_store",
+                #                 BytesRef(get_binary4dvs(ent_set))))
 
                 self.writer.addDocument(lucene_doc)
                 num_paragraphs += 1
 
-                if num_paragraphs % 10000 == 0:
+                if num_paragraphs % 50000 == 0:
                     print(datetime.now(), 'Added #paragraphs', num_paragraphs)
 
         print('#paragraphs', num_paragraphs)
         print('#empty_paragraphs', num_empty_paragraphs)
 
         print('Adding entity docs..')
-        for entity in self.entity2idx:
+        for e_dict_idx, entity_idx in enumerate(self.entity_dict):
             # skip UNK
-            if self.entity2idx[entity] == 0:
+            if entity_idx == self.entity2idx['UNK']:
                 continue
-            ename, etype = entity.split('\t')
+            ename, etype, etype_id = self.entity_dict[entity_idx]
             entity_doc = Document()
-            entity_doc.add(Field("name", ename, t1))
+            entity_doc.add(Field("name", ename, t2_tk))
             entity_doc.add(Field("type", etype, t1))
-            entity_doc.add(Field("eid", str(self.entity2idx[entity]), t1))
+            entity_doc.add(Field("eid", str(entity_idx), t1))
+            entity_doc.add(Field("etid", str(etype_id), t1))
             self.writer.addDocument(entity_doc)
+            if (e_dict_idx + 1) % 50000 == 0:
+                print(e_dict_idx + 1)
 
         print('#entities', len(self.entity2idx) - 1)
 
 
-def get_binary4dvs(eidx_list):
+def get_binary4dvs(ent_set):
     binary = bytes()
-    ent_size = len(eidx_list)
+    ent_size = len(ent_set)
     if ent_size == 0:
         return binary
-    elif ent_size == 1:  # single
-        binary += (ent_size << 1).to_bytes(2, byteorder=sys.byteorder)
-    else:  # multiple
-        binary += ((ent_size << 1) + 1).to_bytes(2, byteorder=sys.byteorder)
-    for eidx, etype in eidx_list:
-        binary += eidx.to_bytes(4, byteorder=sys.byteorder)
-        binary += etype.to_bytes(2, byteorder=sys.byteorder)
+    elif ent_size == 1:  # single -> even
+        for eidx, etype in ent_set:
+            binary += write_vint(eidx << 1)
+            binary += write_vint(etype)
+            break  # double check
+    else:  # multiple -> odd
+        binary += write_vint((ent_size << 1) + 1)
+        for eidx, etype in ent_set:
+            binary += write_vint(eidx)
+            binary += write_vint(etype)
     return binary
 
 
