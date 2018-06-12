@@ -3,7 +3,6 @@ import lucene
 import os
 import json
 from java.nio.file import Paths
-from org.apache.lucene.analysis.miscellaneous import LimitTokenCountAnalyzer
 from org.apache.lucene.analysis.standard import StandardAnalyzer
 from org.apache.lucene.document import Document, Field, FieldType, IntPoint, \
     BinaryDocValuesField, StoredField
@@ -25,24 +24,23 @@ from utils import write_vint
 class Indexer(object):
     """Usage: python IndexFiles <doc_directory>"""
 
-    def __init__(self, store_dir, analyzer):
+    def __init__(self, store_dir, analyzer, db_path):
         if not os.path.exists(store_dir):
             os.mkdir(store_dir)
 
         store = SimpleFSDirectory(Paths.get(store_dir))
-        # analyzer = LimitTokenCountAnalyzer(analyzer, 1048576)
         config = IndexWriterConfig(analyzer)
         config.setOpenMode(IndexWriterConfig.OpenMode.CREATE)
         self.writer = IndexWriter(store, config)
 
-        self.wiki_db = DocDB(
-            db_path=os.path.join(os.path.expanduser('~'), 'common', 'wikipedia',
-                                 'docs.db'))
+        # TODO checksum
+        self.wiki_db = DocDB(db_path=db_path)
 
-        print('Getting docs..')
+        print('Getting docs..', db_path)
         self.doc_ids = self.wiki_db.get_ner_doc_ids()
-        # checksum
         print('# wiki docs', len(self.doc_ids))
+        assert len(self.doc_ids) == 5075182
+
         self.entity2idx = dict()
         self.idx2entity = dict()
         self.entity2idx['UNK'] = 0
@@ -212,13 +210,18 @@ class Ticker(object):
 
 
 if __name__ == '__main__':
+    # base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    output_dir = os.path.join('/media/donghyeonkim/'
+                              'f7c53837-2156-4793-b2b1-4b0578dffef1/entityqa',
+                              'index')
+    db_filepath = os.path.join(os.path.expanduser('~'), 'common',
+                               'wikipedia', 'docs.db')
+
     lucene.initVM()
     print('lucene', lucene.VERSION)
     start = datetime.now()
     try:
-        base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-        indexer = Indexer(os.path.join(base_dir, 'eqa_index'),
-                          StandardAnalyzer())
+        indexer = Indexer(output_dir, StandardAnalyzer(), db_filepath)
         indexer.index_docs()
         end = datetime.now()
         print(end - start)

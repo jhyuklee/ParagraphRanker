@@ -11,10 +11,10 @@ from org.apache.lucene.store import FSDirectory
 
 q = 'good day'
 field = 'content'
-index = 'eqa_index'
+index_dir = 'eqa_index'
 hitsPerPage = 10
 
-reader = DirectoryReader.open(FSDirectory.open(Paths.get(index)))
+reader = DirectoryReader.open(FSDirectory.open(Paths.get(index_dir)))
 searcher = IndexSearcher(reader)
 
 analyzer = StandardAnalyzer()

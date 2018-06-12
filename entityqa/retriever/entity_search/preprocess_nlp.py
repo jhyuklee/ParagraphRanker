@@ -252,24 +252,26 @@ def label_no_label_ids():
     for didx, doc_id in enumerate(wikidoc_ids):
         doc_p_ents = wikipedia_db.get_doc_p_ents(doc_id)
 
-        assert doc_p_ents
-
-        doc_dict = json.loads(doc_p_ents)
-
         found_invalid_doc = False
-        paragraphs = doc_dict['paragraphs']
-        for p_idx, p in enumerate(paragraphs):
-            ents = p['ents']
 
-            found_invalid_p = False
-            for entity in ents:
-                if 'label' not in entity:
-                    found_invalid_p = True
+        if doc_p_ents:
+            doc_dict = json.loads(doc_p_ents)
+
+            paragraphs = doc_dict['paragraphs']
+            for p_idx, p in enumerate(paragraphs):
+                ents = p['ents']
+
+                found_invalid_p = False
+                for entity in ents:
+                    if 'label' not in entity:
+                        found_invalid_p = True
+                        break
+
+                if found_invalid_p:
+                    found_invalid_doc = True
                     break
-
-            if found_invalid_p:
-                found_invalid_doc = True
-                break
+        else:
+            found_invalid_doc = True
 
         if found_invalid_doc:
             wikipedia_db.update_ner_doc(doc_id,
@@ -280,10 +282,11 @@ def label_no_label_ids():
             resurrection_count += 1
 
         if (didx + 1) % 100000 == 0:
-            print(didx + 1, resurrection_count, sep='\t')
+            print(datetime.now(), didx + 1, resurrection_count, sep='\t')
 
     print("resurrection_count", resurrection_count)
 
 
 if __name__ == '__main__':
     main()
+    # label_no_label_ids()
