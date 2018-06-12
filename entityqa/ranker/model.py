@@ -220,8 +220,8 @@ class ParagraphRanker(object):
         loss.backward()
 
         # Clip gradients
-        torch.nn.utils.clip_grad_norm(self.network.parameters(),
-                                      self.args.grad_clipping)
+        torch.nn.utils.clip_grad_norm_(self.network.parameters(),
+                                       self.args.grad_clipping)
 
         # Update parameters
         self.optimizer.step()

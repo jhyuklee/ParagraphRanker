@@ -36,8 +36,9 @@ logger = logging.getLogger()
 
 # Defaults
 DATA_DIR = os.path.join(MULTIQA_PATH[0], 'datasets')
-EMBED_DIR = os.path.join(expanduser("~"), 'datasets/glove/')
+EMBED_DIR = os.path.join(expanduser("~"), 'datasets/')
 MODEL_DIR = os.path.join(MULTIQA_PATH[1], 'reader/results/')
+
 
 def str2bool(v):
     return v.lower() in ('yes', 'true', 't', '1', 'y')
@@ -97,8 +98,11 @@ def add_train_args(parser):
     files.add_argument('--embed-dir', type=str, default=EMBED_DIR,
                        help='Directory of pre-trained embedding files')
     files.add_argument('--embedding-file', type=str,
-                       default='glove.6B.300d.txt',
+                       # default='glove/glove.840B.300d.txt',
+                       default='fasttext/crawl-300d-2M.vec',
                        help='Space-separated pretrained embeddings file')
+    files.add_argument('--fasttext', type='bool', default=True,
+                        help='if using fasttext')
 
     # Saving + loading
     save_load = parser.add_argument_group('Saving/Loading')
@@ -120,6 +124,8 @@ def add_train_args(parser):
 
     # General
     general = parser.add_argument_group('General')
+    general.add_argument('--train', type='bool', default=True,
+                         help='if train proceeds')
     general.add_argument('--official-eval', type='bool', default=True,
                          help='Validate with official SQuAD eval')
     general.add_argument('--valid-metric', type=str, default='f1',
@@ -162,9 +168,10 @@ def set_defaults(args):
 
     # Embeddings options
     if args.embedding_file:
-        with open(args.embedding_file) as f:
-            dim = len(f.readline().strip().split(' ')) - 1
-        args.embedding_dim = dim
+        if not args.fasttext:
+            with open(args.embedding_file) as f:
+                dim = len(f.readline().strip().split(' ')) - 1
+            args.embedding_dim = dim
     elif not args.embedding_dim:
         raise RuntimeError('Either embedding_file or embedding_dim '
                            'needs to be specified.')
@@ -208,7 +215,7 @@ def init_from_scratch(args, train_exs, dev_exs):
 
     # Load pretrained embeddings for words in dictionary
     if args.embedding_file:
-        model.load_embeddings(word_dict.tokens(), args.embedding_file)
+        model.load_embeddings(word_dict.tokens(), args.embedding_file, args.fasttext)
 
     return model
 
@@ -263,19 +270,20 @@ def validate_unofficial(args, data_loader, model, global_stats, mode):
     examples = 0
     for ex in data_loader:
         batch_size = ex[0].size(0)
-        pred_s, pred_e, _ = model.predict(ex)
-        target_s, target_e = ex[-3:-1]
+        with torch.no_grad():
+            pred_s, pred_e, _ = model.predict(ex)
+            target_s, target_e = ex[-3:-1]
 
-        # We get metrics for independent start/end and joint start/end
-        accuracies = eval_accuracies(pred_s, target_s, pred_e, target_e)
-        start_acc.update(accuracies[0], batch_size)
-        end_acc.update(accuracies[1], batch_size)
-        exact_match.update(accuracies[2], batch_size)
+            # We get metrics for independent start/end and joint start/end
+            accuracies = eval_accuracies(pred_s, target_s, pred_e, target_e)
+            start_acc.update(accuracies[0], batch_size)
+            end_acc.update(accuracies[1], batch_size)
+            exact_match.update(accuracies[2], batch_size)
 
-        # If getting train accuracies, sample max 10k
-        examples += batch_size
-        if mode == 'train' and examples >= 1e4:
-            break
+            # If getting train accuracies, sample max 10k
+            examples += batch_size
+            if mode == 'train' and examples >= 1e4:
+                break
 
     logger.info('%s valid unofficial: Epoch = %d | start = %.2f | ' %
                 (mode, global_stats['epoch'], start_acc.avg) +
@@ -304,19 +312,20 @@ def validate_official(args, data_loader, model, global_stats,
     examples = 0
     for ex in data_loader:
         ex_id, batch_size = ex[-1], ex[0].size(0)
-        pred_s, pred_e, _ = model.predict(ex)
+        with torch.no_grad():
+            pred_s, pred_e, _ = model.predict(ex)
 
-        for i in range(batch_size):
-            s_offset = offsets[ex_id[i]][pred_s[i][0]][0]
-            e_offset = offsets[ex_id[i]][pred_e[i][0]][1]
-            prediction = texts[ex_id[i]][s_offset:e_offset]
+            for i in range(batch_size):
+                s_offset = offsets[ex_id[i]][pred_s[i][0]][0]
+                e_offset = offsets[ex_id[i]][pred_e[i][0]][1]
+                prediction = texts[ex_id[i]][s_offset:e_offset]
 
-            # Compute metrics
-            ground_truths = answers[ex_id[i]]
-            exact_match.update(utils.metric_max_over_ground_truths(
-                utils.exact_match_score, prediction, ground_truths))
-            f1.update(utils.metric_max_over_ground_truths(
-                utils.f1_score, prediction, ground_truths))
+                # Compute metrics
+                ground_truths = answers[ex_id[i]]
+                exact_match.update(utils.metric_max_over_ground_truths(
+                    utils.exact_match_score, prediction, ground_truths))
+                f1.update(utils.metric_max_over_ground_truths(
+                    utils.f1_score, prediction, ground_truths))
 
         examples += batch_size
 
@@ -334,8 +343,8 @@ def eval_accuracies(pred_s, target_s, pred_e, target_e):
     """
     # Convert 1D tensors to lists of lists (compatibility)
     if torch.is_tensor(target_s):
-        target_s = [[e] for e in target_s]
-        target_e = [[e] for e in target_e]
+        target_s = [[e.item()] for e in target_s]
+        target_e = [[e.item()] for e in target_e]
 
     # Compute accuracies from targets
     batch_size = len(pred_s)
@@ -492,7 +501,8 @@ def main(args):
         stats['epoch'] = epoch
 
         # Train
-        train(args, train_loader, model, stats)
+        if args.train:
+            train(args, train_loader, model, stats)
 
         # Validate unofficial (train)
         validate_unofficial(args, train_loader, model, stats, mode='train')

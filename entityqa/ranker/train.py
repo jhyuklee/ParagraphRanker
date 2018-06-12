@@ -107,7 +107,7 @@ def add_train_args(parser):
     files.add_argument('--embed-dir', type=str, default=EMBED_DIR,
                        help='Directory of pre-trained embedding files')
     files.add_argument('--embedding-file', type=str,
-                       default='glove.6B.300d.txt',
+                       default='glove.840B.300d.txt',
                        help='Space-separated pretrained embeddings file')
     files.add_argument('--candidate-file', type=str, default=None,
                         help=("List of candidates to restrict predictions to, "
