@@ -12,6 +12,7 @@ from queue import Queue
 # Ref.
 # https://docs.python.org/3/library/queue.html
 # https://www.ploggingdev.com/2017/01/multiprocessing-and-multithreading-in-python-3/
+# https://spacy.io/usage/facts-figures#ner-accuracy-ontonotes5
 
 # A copy of
 # https://github.com/facebookresearch/DrQA/blob/master/drqa/retriever/doc_db.py
@@ -127,36 +128,16 @@ class DocDB(object):
 
 def preprocess_worker(doc_id, log_interval=1000):
     global wiki_db
-    global doc_ids
     global nlp_spacy
     global doc_count
 
     with threading_lock:
         doc_text = wiki_db.get_doc_text(doc_id)
 
-    paragraph_infos = list()
-
-    paragraphs = doc_text.split('\n\n')
-    for p_idx, p in enumerate(paragraphs):
-        p_doc = nlp_spacy(p.strip())  # trim and nlp
-
-        # NER
-        ents = list()
-        for entity in p_doc.ents:
-            ents.append({'text': entity.text,
-                         'start_char': entity.start_char,
-                         'end_char': entity.end_char,
-                         'label_': entity.label_,
-                         'label': entity.label})
-
-        paragraph_infos.append({
-            'text': p,
-            'ents': ents
-        })
+    doc_paragraphs_json = get_doc_paragraphs_json(doc_text, nlp_spacy)
 
     with threading_lock:
-        wiki_db.update_ner_doc(doc_id,
-                               json.dumps({'paragraphs': paragraph_infos}))
+        wiki_db.update_ner_doc(doc_id, doc_paragraphs_json)
 
     doc_count += 1
     if doc_count % log_interval == 0:
@@ -165,6 +146,29 @@ def preprocess_worker(doc_id, log_interval=1000):
 
             if doc_count % (3 * log_interval) == 0:
                 wiki_db.connection.commit()
+
+
+def get_doc_paragraphs_json(doc_text, nlp):
+    paragraph_infos = list()
+    paragraphs = doc_text.split('\n\n')
+    for p_idx, p in enumerate(paragraphs):
+        paragraph_infos.append(get_p_dict(p, nlp))
+    return json.dumps({'paragraphs': paragraph_infos})
+
+
+def get_p_dict(p, nlp):
+    p_doc = nlp(p.strip())  # trim and nlp using spaCy
+
+    # NER
+    ents = list()
+    for entity in p_doc.ents:
+        ents.append({'text': entity.text,
+                     'start_char': entity.start_char,
+                     'end_char': entity.end_char,
+                     'label_': entity.label_,
+                     'label': entity.label})
+
+    return {'text': p, 'ents': ents}
 
 
 wiki_db = None
@@ -182,6 +186,7 @@ def main():
 
     n_threads = 8
 
+    # https://spacy.io/usage/facts-figures#benchmarks-models-english
     # python3 -m spacy download en_core_web_lg
     nlp_spacy = spacy.load('en_core_web_lg', disable=['parser', 'tagger'])
 
@@ -230,6 +235,54 @@ def main():
     print("Execution time = {0:.5f}".format(time.time() - start))
 
     wiki_db.close()
+
+
+def label_no_label_ids():
+    wikipedia_db = DocDB(
+        db_path=os.path.join(os.path.expanduser('~'), 'common', 'wikipedia',
+                             'docs.db'))
+    print('Getting doc ids..')
+    wikidoc_ids = wikipedia_db.get_doc_ids()
+    print('# wiki docs', len(wikidoc_ids))
+
+    nlp = spacy.load('en_core_web_lg', disable=['parser', 'tagger'])
+
+    resurrection_count = 0
+
+    for didx, doc_id in enumerate(wikidoc_ids):
+        doc_p_ents = wikipedia_db.get_doc_p_ents(doc_id)
+
+        assert doc_p_ents
+
+        doc_dict = json.loads(doc_p_ents)
+
+        found_invalid_doc = False
+        paragraphs = doc_dict['paragraphs']
+        for p_idx, p in enumerate(paragraphs):
+            ents = p['ents']
+
+            found_invalid_p = False
+            for entity in ents:
+                if 'label' not in entity:
+                    found_invalid_p = True
+                    break
+
+            if found_invalid_p:
+                found_invalid_doc = True
+                break
+
+        if found_invalid_doc:
+            wikipedia_db.update_ner_doc(doc_id,
+                                        get_doc_paragraphs_json(
+                                            wikipedia_db.get_doc_text(doc_id),
+                                            nlp)
+                                        )
+            resurrection_count += 1
+
+        if (didx + 1) % 100000 == 0:
+            print(didx + 1, resurrection_count, sep='\t')
+
+    print("resurrection_count", resurrection_count)
 
 
 if __name__ == '__main__':

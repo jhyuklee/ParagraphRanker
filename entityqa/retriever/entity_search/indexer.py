@@ -19,9 +19,10 @@ from utils import write_vint
 
 # Ref.
 # http://svn.apache.org/viewvc/lucene/pylucene/trunk/samples/IndexFiles.py
+# http://lucene.apache.org/core/6_5_0/core/index.html
 
 
-class IndexFiles(object):
+class Indexer(object):
     """Usage: python IndexFiles <doc_directory>"""
 
     def __init__(self, store_dir, analyzer):
@@ -29,7 +30,7 @@ class IndexFiles(object):
             os.mkdir(store_dir)
 
         store = SimpleFSDirectory(Paths.get(store_dir))
-        analyzer = LimitTokenCountAnalyzer(analyzer, 1048576)
+        # analyzer = LimitTokenCountAnalyzer(analyzer, 1048576)
         config = IndexWriterConfig(analyzer)
         config.setOpenMode(IndexWriterConfig.OpenMode.CREATE)
         self.writer = IndexWriter(store, config)
@@ -40,21 +41,14 @@ class IndexFiles(object):
 
         print('Getting docs..')
         self.doc_ids = self.wiki_db.get_ner_doc_ids()
+        # checksum
         print('# wiki docs', len(self.doc_ids))
         self.entity2idx = dict()
         self.idx2entity = dict()
         self.entity2idx['UNK'] = 0
         self.idx2entity[0] = 'UNK'
         self.entity_dict = dict()
-
-        self.index_docs()
-        ticker = Ticker()
-        print('commit index')
-        threading.Thread(target=ticker.run).start()
-        self.writer.commit()
-        self.writer.close()
-        ticker.tick = False
-        print('done')
+        print('Init. Done')
 
     def index_docs(self):
         t1 = FieldType()
@@ -79,8 +73,7 @@ class IndexFiles(object):
         for d_idx, doc_id in enumerate(self.doc_ids):
             doc_p_ents = self.wiki_db.get_doc_p_ents(doc_id)
 
-            if doc_p_ents is None:
-                continue
+            assert doc_p_ents
 
             doc_dict = json.loads(doc_p_ents)
 
@@ -92,7 +85,7 @@ class IndexFiles(object):
                     continue
 
                 lucene_doc = Document()
-                lucene_doc.add(Field("wiki_doc_id", doc_id, t2_tk))
+                lucene_doc.add(Field("wiki_doc_id", doc_id, t2_tk))  # TODO
                 lucene_doc.add(Field("p_idx", str(p_idx), t1))
                 lucene_doc.add(Field("content", p['text'], t2_tk))
 
@@ -107,9 +100,7 @@ class IndexFiles(object):
 
                     for entity in ents:
 
-                        if 'label' not in entity:
-                            print(doc_id)
-                            break
+                        assert 'label' in entity, 'doc_id={}'.format(doc_id)
 
                         entity_key = entity['text'] + '\t' + entity['label_']
 
@@ -182,6 +173,14 @@ class IndexFiles(object):
 
         print('#entities', len(self.entity2idx) - 1)
 
+        ticker = Ticker()
+        print('commit index')
+        threading.Thread(target=ticker.run).start()
+        self.writer.commit()
+        self.writer.close()
+        ticker.tick = False
+        print('done')
+
 
 def get_binary4dvs(ent_set):
     binary = bytes()
@@ -194,7 +193,7 @@ def get_binary4dvs(ent_set):
             binary += write_vint(etype)
             break  # double check
     else:  # multiple -> odd
-        binary += write_vint((ent_size << 1) + 1)
+        binary += write_vint((ent_size << 1) + 1)  # write # of entities
         for eidx, etype in ent_set:
             binary += write_vint(eidx)
             binary += write_vint(etype)
@@ -218,7 +217,9 @@ if __name__ == '__main__':
     start = datetime.now()
     try:
         base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-        IndexFiles(os.path.join(base_dir, 'eqa_index'), StandardAnalyzer())
+        indexer = Indexer(os.path.join(base_dir, 'eqa_index'),
+                          StandardAnalyzer())
+        indexer.index_docs()
         end = datetime.now()
         print(end - start)
     except Exception as e:
