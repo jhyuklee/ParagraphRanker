@@ -78,14 +78,16 @@ class Indexer(object):
             paragraphs = doc_dict['paragraphs']
             for p_idx, p in enumerate(paragraphs):
 
-                if len(p['text']) == 0:
+                p_text = p['text'].strip()
+
+                if len(p_text) == 0:
                     num_empty_paragraphs += 1
                     continue
 
                 lucene_doc = Document()
                 lucene_doc.add(Field("wiki_doc_id", doc_id, t2_tk))  # TODO
                 lucene_doc.add(Field("p_idx", str(p_idx), t1))
-                lucene_doc.add(Field("content", p['text'], t2_tk))
+                lucene_doc.add(Field("content", p_text, t2_tk))
 
                 # Named-entities
                 ents = p['ents']
@@ -148,13 +150,14 @@ class Indexer(object):
                 self.writer.addDocument(lucene_doc)
                 num_paragraphs += 1
 
-                if num_paragraphs % 50000 == 0:
-                    print(datetime.now(), 'Added #paragraphs', num_paragraphs)
+                if num_paragraphs % 100000 == 0:
+                    print(datetime.now(), 'Added #paragraphs', num_paragraphs,
+                          '#wikidocs', d_idx + 1)
 
         print('#paragraphs', num_paragraphs)
-        print('#empty_paragraphs', num_empty_paragraphs)
+        print('#skipped_empty_paragraphs', num_empty_paragraphs)
 
-        print('Adding entity docs..')
+        print('\nAdding entity docs..')
         for e_dict_idx, entity_idx in enumerate(self.entity_dict):
             # skip UNK
             if entity_idx == self.entity2idx['UNK']:
@@ -166,8 +169,8 @@ class Indexer(object):
             entity_doc.add(Field("eid", str(entity_idx), t1))
             entity_doc.add(Field("etid", str(etype_id), t1))
             self.writer.addDocument(entity_doc)
-            if (e_dict_idx + 1) % 50000 == 0:
-                print(e_dict_idx + 1)
+            if (e_dict_idx + 1) % 500000 == 0:
+                print(datetime.now(), e_dict_idx + 1)
 
         print('#entities', len(self.entity2idx) - 1)
 
