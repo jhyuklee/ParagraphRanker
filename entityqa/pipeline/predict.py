@@ -36,7 +36,7 @@ Usage example:
 ROOT_PATH = PosixPath(__file__).absolute().parents[2].as_posix()
 PATHS = {
     'DATA': os.path.join(ROOT_PATH, 'data/datasets'),
-    'EMBED': os.path.join(expanduser("~"), 'common/glove/'),
+    'EMBED': os.path.join(expanduser("~"), 'datasets'),
     'PIPELINE': os.path.join(ROOT_PATH, 'entityqa/pipeline/results'),
     'WIKI': os.path.join(ROOT_PATH, 'data/wikipedia'),
     'RANKER': os.path.join(ROOT_PATH, 'entityqa/ranker/results'),
@@ -50,7 +50,7 @@ DOC_DB_PATH = os.path.join(PATHS['WIKI'], 'docs.db')
 
 # Reader paths (default + fine-tined)
 READER_PATH = {
-    'default': os.path.join(PATHS['READER'], '20180323-a705bbb5.mdl'),
+    'default': os.path.join(PATHS['READER'], '20180613-a4fbf221.mdl'),
     'SQuAD': os.path.join(PATHS['READER'], '20180402-20e74b70.mdl'),
     'TREC': os.path.join(PATHS['READER'], '20180402-b6765c55.mdl'),
     'WebQ': os.path.join(PATHS['READER'], '20180402-14e759b0.mdl'),
@@ -59,8 +59,8 @@ READER_PATH = {
 
 # Ranker paths
 RANKER_PATH = {
-    'test': os.path.join(PATHS['RANKER'], '20180509-66a734e9.mdl'),
-    'soft': os.path.join(PATHS['RANKER'], '20180323-8d3fa60d.mdl'),
+    'basic': os.path.join(PATHS['RANKER'], '20180613-a6982591.mdl'),
+    'soft': os.path.join(PATHS['RANKER'], '20180613-a6982591.mdl'),
     'hard': os.path.join(PATHS['RANKER'], '20180419-f5c79d9a.mdl'),
 }
 
@@ -111,7 +111,7 @@ def add_train_args(parser):
                          help=('Tokenizer'))
     runtime.add_argument('--match', type=str, default='string',
                          help=('Matching function (set to regex for Trec)'))
-    runtime.add_argument('--ranker-type', type=str, default='test',
+    runtime.add_argument('--ranker-type', type=str, default='basic',
                          help=('Type of ranker'))
     runtime.add_argument('--reader-type', type=str, default='TREC',
                          help=('Type of reader'))
@@ -128,7 +128,7 @@ def add_train_args(parser):
                        help='Unique model identifier (.mdl, .txt, .checkpoint)')
     files.add_argument('--retriever-path', type=str, default=RET_PATH,
                        help='Unique retriever path')
-    files.add_argument('--ranker-path', type=str, default=RANKER_PATH['test'],
+    files.add_argument('--ranker-path', type=str, default=RANKER_PATH['basic'],
                        help='Unique ranker path')
     files.add_argument('--reader-path', type=str, default=READER_PATH['default'],
                        help='Unique reader path')
@@ -139,8 +139,11 @@ def add_train_args(parser):
     files.add_argument('--embed-dir', type=str, default=PATHS['EMBED'],
                        help='Directory of pre-trained embedding files')
     files.add_argument('--embedding-file', type=str,
-                       default='glove.840B.300d.txt',
+                       # default='glove/glove.840B.300d.txt',
+                       default='fasttext/crawl-300d-2M.vec',
                        help='Space-separated pretrained embeddings file')
+    files.add_argument('--fasttext', type='bool', default=True,
+                        help='if using fasttext')
     files.add_argument('--candidate-file', type=str, default=None,
                         help=("List of candidates to restrict predictions to, "
                               "one candidate per line"))
@@ -181,9 +184,10 @@ def set_defaults(args):
 
     # Embeddings options
     if args.embedding_file:
-        with open(args.embedding_file) as f:
-            dim = len(f.readline().strip().split(' ')) - 1
-        args.embedding_dim = dim
+        if not args.fasttext:
+            with open(args.embedding_file) as f:
+                dim = len(f.readline().strip().split(' ')) - 1
+            args.embedding_dim = dim
     elif not args.embedding_dim:
         raise RuntimeError('Either embedding_file or embedding_dim '
                            'needs to be specified.')

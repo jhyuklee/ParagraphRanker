@@ -43,8 +43,8 @@ logger = logging.getLogger()
 
 # Defaults
 DATA_DIR = os.path.join(MULTIQA_PATH[0], 'datasets')
+EMBED_DIR = os.path.join(expanduser("~"), 'datasets/')
 MODEL_DIR = os.path.join(MULTIQA_PATH[1], 'ranker/results/')
-EMBED_DIR = os.path.join(expanduser("~"), 'datasets/glove/')
 
 
 def str2bool(v):
@@ -70,9 +70,9 @@ def add_train_args(parser):
     runtime.add_argument('--random-seed', type=int, default=1013,
                          help=('Random seed for all numpy/torch/cuda '
                                'operations (for reproducibility)'))
-    runtime.add_argument('--num-epochs', type=int, default=40,
+    runtime.add_argument('--num-epochs', type=int, default=50,
                          help='Train data iterations')
-    runtime.add_argument('--batch-size', type=int, default=20,
+    runtime.add_argument('--batch-size', type=int, default=16,
                          help='Batch size for training')
     runtime.add_argument('--test-batch-size', type=int, default=128,
                          help='Batch size during validation/testing')
@@ -107,8 +107,11 @@ def add_train_args(parser):
     files.add_argument('--embed-dir', type=str, default=EMBED_DIR,
                        help='Directory of pre-trained embedding files')
     files.add_argument('--embedding-file', type=str,
-                       default='glove.840B.300d.txt',
+                       # default='glove/glove.840B.300d.txt',
+                       default='fasttext/crawl-300d-2M.vec',
                        help='Space-separated pretrained embeddings file')
+    files.add_argument('--fasttext', type='bool', default=True,
+                        help='if using fasttext')
     files.add_argument('--candidate-file', type=str, default=None,
                         help=("List of candidates to restrict predictions to, "
                               "one candidate per line"))
@@ -185,9 +188,10 @@ def set_defaults(args):
 
     # Embeddings options
     if args.embedding_file:
-        with open(args.embedding_file) as f:
-            dim = len(f.readline().strip().split(' ')) - 1
-        args.embedding_dim = dim
+        if not args.fasttext:
+            with open(args.embedding_file) as f:
+                dim = len(f.readline().strip().split(' ')) - 1
+            args.embedding_dim = dim
     elif not args.embedding_dim:
         raise RuntimeError('Either embedding_file or embedding_dim '
                            'needs to be specified.')
@@ -231,7 +235,7 @@ def init_from_scratch(args, train_exs, dev_exs):
 
     # Load pretrained embeddings for words in dictionary
     if args.embedding_file and not args.no_embed:
-        model.load_embeddings(word_dict.tokens(), args.embedding_file)
+        model.load_embeddings(word_dict.tokens(), args.embedding_file, args.fasttext)
 
     return model
 
@@ -370,7 +374,7 @@ def main(args):
                 added = model.expand_dictionary(words)
                 # Load pretrained embeddings for added words
                 if args.embedding_file:
-                    model.load_embeddings(added, args.embedding_file)
+                    model.load_embeddings(added, args.embedding_file, args.fasttext)
 
         else:
             logger.info('Training model from scratch...')
