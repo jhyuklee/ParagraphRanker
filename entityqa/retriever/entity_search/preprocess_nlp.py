@@ -1,5 +1,6 @@
 import json
 import os
+import regex
 import spacy
 import sqlite3
 import time
@@ -150,10 +151,31 @@ def preprocess_worker(doc_id, log_interval=1000):
 
 def get_doc_paragraphs_json(doc_text, nlp):
     paragraph_infos = list()
-    paragraphs = doc_text.split('\n\n')
+    paragraphs = _split_doc(doc_text)
+
     for p_idx, p in enumerate(paragraphs):
         paragraph_infos.append(get_p_dict(p, nlp))
     return json.dumps({'paragraphs': paragraph_infos})
+
+
+# a copy of entityqa.pipeline.pipeline._split_doc()
+def _split_doc(doc, group_length=0):
+    """Given a doc, split it into chunks (by paragraph)."""
+    curr = []
+    curr_len = 0
+    for split in regex.split(r'\n+', doc):
+        split = split.strip()
+        if len(split) == 0:
+            continue
+        # Maybe group paragraphs together until we hit a length limit
+        if len(curr) > 0 and curr_len + len(split) > group_length:
+            yield ' '.join(curr)
+            curr = []
+            curr_len = 0
+        curr.append(split)
+        curr_len += len(split)
+    if len(curr) > 0:
+        yield ' '.join(curr)
 
 
 def get_p_dict(p, nlp):
