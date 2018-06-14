@@ -245,7 +245,7 @@ class QAPipeline(object):
         for sim, ex_id in zip(similarity, ex_ids): 
             qidx, rel_didx, sidx = ex_id
             doc_sim = float(all_doc_scores[qidx][rel_didx])
-            par_sim = sim.data.tolist()[0]
+            par_sim = sim.item()
 
             if qidx not in q_gather:
                 q_gather[qidx] = []
@@ -254,7 +254,7 @@ class QAPipeline(object):
             # Search score by q and s
             if qidx not in qs_to_score:
                 qs_to_score[qidx] = {}
-            qs_to_score[qidx][sidx] = sim.data.tolist()[0]
+            qs_to_score[qidx][sidx] = sim.item()
 
         # Filter only top ranked paragraphs
         n_paragraphs = n_pars

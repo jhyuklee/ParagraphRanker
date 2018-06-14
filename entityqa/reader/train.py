@@ -418,7 +418,7 @@ def main(args):
                 added = model.expand_dictionary(words)
                 # Load pretrained embeddings for added words
                 if args.embedding_file:
-                    model.load_embeddings(added, args.embedding_file)
+                    model.load_embeddings(added, args.embedding_file, args.fasttext)
 
         else:
             logger.info('Training model from scratch...')

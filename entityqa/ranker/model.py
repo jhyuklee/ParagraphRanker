@@ -16,6 +16,7 @@ import copy
 from torch.autograd import Variable
 from root.ranker.config import override_model_args
 from root.ranker.rnn_encoder import RnnEncoder
+from root.ranker.linear_encoder import LinearEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,8 @@ class ParagraphRanker(object):
         # 0-1 per paragraph (no softmax).
         if args.model_type == 'rnn':
             self.network = RnnEncoder(args, normalize)
+        elif args.model_type == 'linear':
+            self.network = LinearEncoder(args, normalize)
         else:
             raise RuntimeError('Unsupported model: %s' % args.model_type)
 
@@ -88,7 +91,7 @@ class ParagraphRanker(object):
         # Return added words
         return to_add
 
-    def load_embeddings(self, words, embedding_file):
+    def load_embeddings(self, words, embedding_file, fasttext=False):
         """Load pretrained embeddings for a given list of words, if they exist.
 
         Args:
@@ -101,24 +104,34 @@ class ParagraphRanker(object):
                     (len(words), embedding_file))
         embedding = self.network.embedding.weight.data
 
+        # Preprocessing for fasttext
+        if fasttext:
+            import io
+            f = io.open(embedding_file, 'r', encoding='utf-8', 
+                        newline='\n', errors='ignore')
+            n, d = map(int, f.readline().split())
+            self.args.embedding_dim = d
+            logger.info('Fasttext with {} words and {} dimension'.format(n, d))
+        else:
+            f = open(embedding_file)
+
         # When normalized, some words are duplicated. (Average the embeddings).
         vec_counts = {}
-        with open(embedding_file) as f:
-            for line in f:
-                parsed = line.rstrip().split(' ')
-                assert(len(parsed) == embedding.size(1) + 1)
-                w = self.word_dict.normalize(parsed[0])
-                if w in words:
-                    vec = torch.Tensor([float(i) for i in parsed[1:]])
-                    if w not in vec_counts:
-                        vec_counts[w] = 1
-                        embedding[self.word_dict[w]].copy_(vec)
-                    else:
-                        logging.warning(
-                            'WARN: Duplicate embedding found for %s' % w
-                        )
-                        vec_counts[w] = vec_counts[w] + 1
-                        embedding[self.word_dict[w]].add_(vec)
+        for line in f:
+            parsed = line.rstrip().split(' ')
+            assert(len(parsed) == embedding.size(1) + 1)
+            w = self.word_dict.normalize(parsed[0])
+            if w in words:
+                vec = torch.Tensor([float(i) for i in parsed[1:]])
+                if w not in vec_counts:
+                    vec_counts[w] = 1
+                    embedding[self.word_dict[w]].copy_(vec)
+                else:
+                    logging.warning(
+                        'WARN: Duplicate embedding found for %s' % w
+                    )
+                    vec_counts[w] = vec_counts[w] + 1
+                    embedding[self.word_dict[w]].add_(vec)
 
         for w, c in vec_counts.items():
             embedding[self.word_dict[w]].div_(c)
@@ -230,7 +243,7 @@ class ParagraphRanker(object):
         # Reset any partially fixed parameters (e.g. rare words)
         self.reset_parameters()
 
-        return loss.data[0], ex[0].size(0)
+        return loss.item(), ex[0].size(0)
 
     def reset_parameters(self):
         """Reset any partially fixed parameters to original states."""
@@ -267,10 +280,10 @@ class ParagraphRanker(object):
         # Transfer to GPU
         if self.use_cuda:
             inputs = [e if e is None else
-                      Variable(e.cuda(async=True), volatile=True)
+                      Variable(e.cuda(async=True))
                       for e in ex[:5]]
         else:
-            inputs = [e if e is None else Variable(e, volatile=True)
+            inputs = [e if e is None else Variable(e)
                       for e in ex[:5]]
 
         # Run forward
