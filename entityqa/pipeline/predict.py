@@ -174,6 +174,7 @@ def set_defaults(args):
 
     # Set logging
     args.log_file = os.path.join(args.model_dir, args.model_name + '.txt')
+    args.ranker_file = os.path.join(args.model_dir, args.model_name + '.ranker')
     args.pred_file = os.path.join(args.model_dir, 
                                   'pred_{}.json'.format(args.model_name))
     logger.setLevel(logging.INFO)
@@ -258,25 +259,35 @@ def main(args):
         for i in range(0, len(answers), args.predict_batch_size)]
 
     # Predict and record results
-    logger.info('Predicting...')
+    logger.info('Predicting...' if not args.train else 'Training...')
     closest_pars = []
+    best_loss = 9999999
     with open(args.pred_file, 'w') as pred_f:
         for i, (batch, target) in enumerate(zip(batches, batches_targets)):
             logger.info(
                 '-' * 25 + ' Batch %d/%d ' % (i + 1, len(batches)) + '-' * 25
             )
             if args.train:
-                closest_par, predictions = pipeline.update(batch, target,
-                                                           n_docs=args.n_docs,
-                                                           n_pars=args.n_pars)
+                loss = pipeline.update(batch, target, 
+                                       n_docs=args.n_docs, n_pars=args.n_pars)
+                if loss < best_loss:
+                    logger.info('Best loss = %.3f' % loss)
+                    pipeline.ranker.save(args.ranker_file)
+                    best_loss = loss
             else:
                 with torch.no_grad():
                     closest_par, predictions = pipeline.predict(batch,
                                                                 n_docs=args.n_docs,
                                                                 n_pars=args.n_pars)
-            closest_pars += closest_par
-            for p in predictions:
-                pred_f.write(json.dumps(p) + '\n')
+                    closest_pars += closest_par
+
+                for p in predictions:
+                    pred_f.write(json.dumps(p) + '\n')
+
+    if args.train:
+        logger.info('Training done')
+        exit()
+
     answers_pars = zip(answers, closest_pars)
 
     # define processes

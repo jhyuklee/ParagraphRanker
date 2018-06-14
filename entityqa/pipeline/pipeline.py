@@ -24,7 +24,7 @@ from multiprocessing.util import Finalize
 from functools import partial
 
 from root import tokenizers
-from root.retriever import utils
+from root.retriever import utils as r_utils
 from root.retriever.tfidf_doc_ranker import TfidfDocRanker
 from root.retriever.doc_db import DocDB
 from root.retriever.eval import init, get_answer_label, fetch_text, tokenize_text 
@@ -33,6 +33,7 @@ from root.ranker.model import ParagraphRanker
 from root.ranker.data import RankerDataset, RankerBatchSampler
 from root.ranker.vector import ranker_train_batchify, ranker_dev_batchify
 
+from root.reader import utils
 from root.reader.model import DocReader
 from root.reader.data import ReaderDataset, ReaderBatchSampler
 from root.reader.vector import reader_batchify
@@ -204,33 +205,45 @@ class QAPipeline(object):
         answers_pars = zip(answers, paragraphs)
         get_al_partial = partial(get_answer_label, match='regex', use_text=True)
         answer_labels = self.processes.map(get_al_partial, answers_pars)
-        print(queries[0])
-        print(answers[0])
+        # print(queries[2])
+        # print(answers[2])
+        # print([(p, a) for p, a in zip(paragraphs[2][:200], answer_labels[2][:200]) if a == 1.0])
+        # TODO: Not all paragraphs that contain answers give clue on the answers
         assert len(paragraphs) == len(answer_labels)
         assert len(paragraphs[0]) == len(answer_labels[0])
-        print([(p, a) for p, a in zip(paragraphs[2][:200], answer_labels[2][:200]) if a == 1.0])
-        exit()
 
         examples = []
+        checksum = 0
         for qidx in range(len(queries)):
+            p_idx = 0
             for rel_didx, did in enumerate(all_docids[qidx]):
                 start, end = didx2sidx[did2didx[did]]
                 for sidx in range(start, end):
                     if (len(q_tokens[qidx].words()) > 0 and
                             len(s_tokens[sidx].words()) > 0):
-                        print()
                         examples.append({
                             'id': (qidx, rel_didx, sidx),
                             'question': q_tokens[qidx].words(),
                             'document': s_tokens[sidx].words(),
-                            'target': True,
+                            'target': answer_labels[qidx][p_idx],
                         })
+                        p_idx += 1
                     else:
                         assert False, 'Should not be zero'
-                exit()
+            checksum += p_idx
 
-        logger.info('Ranking %d paragraphs...' % len(examples))
-         
+        logger.info('Ranking {}/{} paragraphs...'.format(len(examples), checksum))
+
+        # Push all examples through the document encoder.
+        # We decode argmax start/end indices asychronously on CPU.
+        ex_ids = []
+        train_loss = utils.AverageMeter()
+        num_loaders = min(self.max_loaders, math.floor(len(examples) / 1e3))
+        for batch in self._get_ranker_loader(examples, num_loaders):
+            train_loss.update(*self.ranker.update(batch))
+        logger.info('ranker loss = {:.3f}'.format(train_loss.avg))
+        
+        return train_loss.avg
 
     def predict(self, queries, candidates=None, n_docs=20, n_pars=200):
         t0 = time.time()
