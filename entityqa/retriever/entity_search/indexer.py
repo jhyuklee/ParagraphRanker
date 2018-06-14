@@ -48,7 +48,7 @@ class Indexer(object):
         self.entity_dict = dict()
         print('Init. Done')
 
-    def index_docs(self):
+    def index_docs(self, log_interval=100000):
         t1 = FieldType()
         t1.setStored(True)
         t1.setTokenized(False)
@@ -150,7 +150,7 @@ class Indexer(object):
                 self.writer.addDocument(lucene_doc)
                 num_paragraphs += 1
 
-                if num_paragraphs % 100000 == 0:
+                if num_paragraphs % log_interval == 0:
                     print(datetime.now(), 'Added #paragraphs', num_paragraphs,
                           '#wikidocs', d_idx + 1)
 
@@ -169,8 +169,8 @@ class Indexer(object):
             entity_doc.add(Field("eid", str(entity_idx), t1))
             entity_doc.add(Field("etid", str(etype_id), t1))
             self.writer.addDocument(entity_doc)
-            if (e_dict_idx + 1) % 500000 == 0:
-                print(datetime.now(), e_dict_idx + 1)
+            if (e_dict_idx + 1) % (10 * log_interval) == 0:
+                print(datetime.now(), '#entities', e_dict_idx + 1)
 
         print('#entities', len(self.entity2idx) - 1)
 

@@ -15,7 +15,7 @@ from org.apache.lucene.store import FSDirectory
 
 lucene.initVM()
 
-q = 'good day'
+q = 'what is the highest mountain?'
 field = 'content'
 index_dir = os.path.join('/media/donghyeonkim/'
                          'f7c53837-2156-4793-b2b1-4b0578dffef1/entityqa',
@@ -45,9 +45,10 @@ for i in range(end):
     wiki_doc_id = doc.get("wiki_doc_id")
     p_idx = doc.get("p_idx")
     content = doc.get("content")
-    print("Wiki doc id   : " + wiki_doc_id)
-    print("Paragraph idx : " + p_idx)
-    print("Paragraph text: " + content)
     print()
+    print(i, "Wiki doc id   : " + wiki_doc_id)
+    print(i, "Paragraph idx : " + p_idx)
+    print(i, "Paragraph text: " + content)
+
 
 # TODO
