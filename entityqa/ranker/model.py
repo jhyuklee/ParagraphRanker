@@ -16,6 +16,7 @@ import copy
 from torch.autograd import Variable
 from root.ranker.config import override_model_args
 from root.ranker.rnn_encoder import RnnEncoder
+from root.ranker.linear_encoder import LinearEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,8 @@ class ParagraphRanker(object):
         # 0-1 per paragraph (no softmax).
         if args.model_type == 'rnn':
             self.network = RnnEncoder(args, normalize)
+        elif args.model_type == 'linear':
+            self.network = LinearEncoder(args, normalize)
         else:
             raise RuntimeError('Unsupported model: %s' % args.model_type)
 
@@ -240,7 +243,7 @@ class ParagraphRanker(object):
         # Reset any partially fixed parameters (e.g. rare words)
         self.reset_parameters()
 
-        return loss.data[0], ex[0].size(0)
+        return loss.item(), ex[0].size(0)
 
     def reset_parameters(self):
         """Reset any partially fixed parameters to original states."""
