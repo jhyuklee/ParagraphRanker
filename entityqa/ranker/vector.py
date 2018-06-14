@@ -61,34 +61,26 @@ def vectorize(ex, model, single_answer=False):
             features[i][feature_dict['tf']] = counter[w.lower()] * 1.0 / l
 
     # Maybe return without target
-    if 'answers' not in ex:
-        return document, features, question, None, None, ex['id']
+    if 'target' not in ex:
+        return document, features, question, None, ex['id']
 
-    # ...or with target(s) (might still be empty if answers is empty)
-    if single_answer:
-        assert(len(ex['answers']) > 0)
-        start = torch.LongTensor(1).fill_(ex['answers'][0][0])
-        end = torch.LongTensor(1).fill_(ex['answers'][0][1])
-    else:
-        start = [a[0] for a in ex['answers']]
-        end = [a[1] for a in ex['answers']]
-
-    return document, features, question, start, end, ex['id']
+    target = torch.tensor(float(ex['target']))
+    return document, features, question, target, ex['id']
 
 
 def ranker_data(ex, neg_exs, model):
     """Torchify a single autoencoder example."""
-    document, features, question, _, _, ex_id = vectorize(ex, model, False)
+    document, features, question, target, ex_id = vectorize(ex, model, False)
 
     neg_documents = []
     neg_features = []
 
     for neg_ex in neg_exs:
-        neg_d, neg_f, _, _, _, _ = vectorize(neg_ex, model, False)
+        neg_d, neg_f, _, _, _ = vectorize(neg_ex, model, False)
         neg_documents.append(neg_d)
         neg_features.append(neg_f)
 
-    return document, features, question, neg_documents, neg_features, ex_id
+    return document, features, question, target, neg_documents, neg_features, ex_id
 
 
 def ranker_train_batchify(batch):
@@ -99,14 +91,14 @@ def ranker_train_batchify(batch):
     ys = []
     for ex in batch:
         # Merge negative samples with docs
-        docs += ([ex[0]] + ex[3])
-        features += ([ex[1]] + ex[4])
+        docs += ([ex[0]] + ex[4])
+        features += ([ex[1]] + ex[5])
 
         # Copy questions for each negative samples
-        questions += [ex[2]] * (len(ex[3]) + 1)
+        questions += [ex[2]] * (len(ex[4]) + 1)
 
         # Set targets as true documents 
-        ys += ([1] + [0] * len(ex[3]))
+        ys += ([1] + [0] * len(ex[4]))
 
     # Batch documents and features
     max_length = max([d.size(0) for d in docs])
@@ -152,7 +144,7 @@ def ranker_dev_batchify(batch):
         questions += [ex[2]]
 
         # Set targets as true documents
-        ys += [1]
+        ys += [ex[3]]
         
         # Append ids
         ex_ids += [ex[-1]]
@@ -180,7 +172,10 @@ def ranker_dev_batchify(batch):
         x2_mask[i, :q.size(0)].fill_(0)
 
     # Batch targets
-    ys = torch.FloatTensor(ys)
+    if ys[0] is None:
+        ys = None
+    else:
+        ys = torch.stack(ys)
 
     return x1, x1_f, x1_mask, x2, x2_mask, ys, ex_ids 
 

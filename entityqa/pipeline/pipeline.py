@@ -27,10 +27,11 @@ from root import tokenizers
 from root.retriever import utils
 from root.retriever.tfidf_doc_ranker import TfidfDocRanker
 from root.retriever.doc_db import DocDB
+from root.retriever.eval import init, get_answer_label, fetch_text, tokenize_text 
 
 from root.ranker.model import ParagraphRanker
 from root.ranker.data import RankerDataset, RankerBatchSampler
-from root.ranker.vector import ranker_dev_batchify
+from root.ranker.vector import ranker_train_batchify, ranker_dev_batchify
 
 from root.reader.model import DocReader
 from root.reader.data import ReaderDataset, ReaderBatchSampler
@@ -40,47 +41,23 @@ from root.reader.vector import reader_batchify
 logger = logging.getLogger(__name__)
 
 
-PROCESS_TOK = None
-PROCESS_DB = None
-PROCESS_CANDS = None
-
-
-def init(tokenizer_class, tokenizer_opts, db_class, db_opts, candidates=None):
-    global PROCESS_TOK, PROCESS_DB, PROCESS_CANDS
-    PROCESS_TOK = tokenizer_class(**tokenizer_opts)
-    Finalize(PROCESS_TOK, PROCESS_TOK.shutdown, exitpriority=100)
-    PROCESS_DB = db_class(**db_opts)
-    Finalize(PROCESS_DB, PROCESS_DB.close, exitpriority=100)
-    PROCESS_CANDS = candidates
-
-
-def fetch_text(doc_id):
-    global PROCESS_DB
-    return PROCESS_DB.get_doc_text(doc_id)
-
-
-def tokenize_text(text):
-    global PROCESS_TOK
-    return PROCESS_TOK.tokenize(text)
-
-
 class QAPipeline(object):
     GROUP_LENGTH = 0
     """Loads a pre-weighted inverted index of token/document terms.
     Scores new queries by taking sparse dot products.
     """
 
-    def __init__(self, retriever_path, db_path, ranker_path, reader_path, strict=True,
+    def __init__(self, retriever_path, db_path, ranker_path, reader_path, 
+                 module_batch_size, module_max_loaders, module_cuda, strict=True,
                  fixed_candidates=None):
         """
         Args:
             strict: fail on empty queries or continue (and return empty result)
         """
         # Manually set
-        # TODO: Pass args from predict.py
-        self.max_loaders = 5
-        self.cuda = True
-        self.batch_size = 64
+        self.max_loaders = module_max_loaders
+        self.cuda = module_cuda
+        self.batch_size = module_batch_size
         self.fixed_candidates = fixed_candidates
 
         # Load retriever
@@ -133,7 +110,9 @@ class QAPipeline(object):
 
     def _get_ranker_loader(self, data, num_loaders):
         """Return a pytorch data iterator for provided examples."""
-        dataset = RankerDataset(data, self.ranker, 1, 1000)
+        dataset = RankerDataset(data, self.ranker,
+                                neg_size=1, 
+                                allowed_size=1000)
         sampler = RankerBatchSampler(
             dataset.lengths(),
             self.batch_size,
@@ -169,8 +148,7 @@ class QAPipeline(object):
 
         return loader
 
-    def predict(self, queries, answers, candidates=None, n_docs=5, n_pars=10):
-        t0 = time.time()
+    def get_paragraphs(self, queries, n_docs):
         logger.info('Processing %d queries...' % len(queries))
         logger.info('Retrieving top %d docs...' % n_docs)
 
@@ -205,6 +183,59 @@ class QAPipeline(object):
         s_tokens = self.processes.map_async(tokenize_text, flat_splits)
         q_tokens = q_tokens.get()
         s_tokens = s_tokens.get()
+        
+        return q_tokens, s_tokens, flat_splits, all_docids, all_doc_scores, flat_docids, \
+            did2didx, didx2sidx
+
+    def update(self, queries, answers, candidates=None, n_docs=20, n_pars=200):
+        t0 = time.time()
+        q_tokens, s_tokens, flat_splits, all_docids, all_doc_scores, flat_docids, did2didx, \
+            didx2sidx = self.get_paragraphs(queries, n_docs)
+
+        paragraphs = []
+        for qidx in range(len(queries)):
+            rel_pars = []
+            for rel_didx, did in enumerate(all_docids[qidx]):
+                start, end = didx2sidx[did2didx[did]]
+                for sidx in range(start, end):
+                    rel_pars += [flat_splits[sidx]]
+            paragraphs += [rel_pars]
+
+        answers_pars = zip(answers, paragraphs)
+        get_al_partial = partial(get_answer_label, match='regex', use_text=True)
+        answer_labels = self.processes.map(get_al_partial, answers_pars)
+        print(queries[0])
+        print(answers[0])
+        assert len(paragraphs) == len(answer_labels)
+        assert len(paragraphs[0]) == len(answer_labels[0])
+        print([(p, a) for p, a in zip(paragraphs[2][:200], answer_labels[2][:200]) if a == 1.0])
+        exit()
+
+        examples = []
+        for qidx in range(len(queries)):
+            for rel_didx, did in enumerate(all_docids[qidx]):
+                start, end = didx2sidx[did2didx[did]]
+                for sidx in range(start, end):
+                    if (len(q_tokens[qidx].words()) > 0 and
+                            len(s_tokens[sidx].words()) > 0):
+                        print()
+                        examples.append({
+                            'id': (qidx, rel_didx, sidx),
+                            'question': q_tokens[qidx].words(),
+                            'document': s_tokens[sidx].words(),
+                            'target': True,
+                        })
+                    else:
+                        assert False, 'Should not be zero'
+                exit()
+
+        logger.info('Ranking %d paragraphs...' % len(examples))
+         
+
+    def predict(self, queries, candidates=None, n_docs=20, n_pars=200):
+        t0 = time.time()
+        q_tokens, s_tokens, flat_splits, all_docids, all_doc_scores, flat_docids, did2didx, \
+            didx2sidx = self.get_paragraphs(queries, n_docs)
 
         # Group into structured example inputs. Examples' ids represent
         # mappings to their question, document, and split ids.
@@ -223,6 +254,7 @@ class QAPipeline(object):
                     else:
                         assert False, 'Should not be zero'
 
+        # TODO: why different from len(flat_splits) ?
         logger.info('Ranking %d paragraphs...' % len(examples))
 
         # Push all examples through the document encoder.

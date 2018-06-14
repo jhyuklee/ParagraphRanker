@@ -19,10 +19,10 @@ from functools import partial
 from pathlib import PosixPath
 from os.path import expanduser
 
-from tfidf_doc_ranker import TfidfDocRanker 
-from doc_db import DocDB
+from root.retriever.tfidf_doc_ranker import TfidfDocRanker 
+from root.retriever.doc_db import DocDB
 from root import tokenizers
-import utils as r_utils
+import root.retriever.utils as r_utils
 
 
 MULTIQA_PATH = (
@@ -34,16 +34,30 @@ MULTIQA_PATH = (
 # Multiprocessing target functions.
 # ------------------------------------------------------------------------------
 
-PROCESS_TOK = None
-PROCESS_DB = None
+PROCESS = {
+    'TOK': None,
+    'DB': None,
+    'CANDS': None,
+}
 
 
-def init(tokenizer_class, tokenizer_opts, db_class, db_opts):
-    global PROCESS_TOK, PROCESS_DB
-    PROCESS_TOK = tokenizer_class(**tokenizer_opts)
-    Finalize(PROCESS_TOK, PROCESS_TOK.shutdown, exitpriority=100)
-    PROCESS_DB = db_class(**db_opts)
-    Finalize(PROCESS_DB, PROCESS_DB.close, exitpriority=100)
+def init(tokenizer_class, tokenizer_opts, db_class, db_opts, candidates=None):
+    global PROCESS
+    PROCESS['TOK'] = tokenizer_class(**tokenizer_opts)
+    Finalize(PROCESS['TOK'], PROCESS['TOK'].shutdown, exitpriority=100)
+    PROCESS['DB'] = db_class(**db_opts)
+    Finalize(PROCESS['DB'], PROCESS['DB'].close, exitpriority=100)
+    PROCESS['CANDS'] = candidates
+
+
+def fetch_text(doc_id):
+    global PROCESS
+    return PROCESS['DB'].get_doc_text(doc_id)
+
+
+def tokenize_text(text):
+    global PROCESS
+    return PROCESS['TOK'].tokenize(text)
 
 
 def regex_match(text, pattern):
@@ -58,21 +72,26 @@ def regex_match(text, pattern):
     return pattern.search(text) is not None
 
 
-def has_answer(answer, doc_id, match):
+def has_answer(answer, doc_data, match, use_text=False):
     """Check if a document contains an answer string.
 
     If `match` is string, token matching is done between the text and answer.
     If `match` is regex, we search the whole text with the regex.
     """
-    global PROCESS_DB, PROCESS_TOK
-    text = PROCESS_DB.get_doc_text(doc_id)
-    text = r_utils.normalize(text)
+    global PROCESS
+
+    if use_text:
+        text = r_utils.normalize(doc_data)
+    else:
+        text = fetch_text(doc_data)
+        text = r_utils.normalize(text)
+
     if match == 'string':
         # Answer is a list of possible strings
-        text = PROCESS_TOK.tokenize(text).words(uncased=True)
+        text = tokenize_text(text).words(uncased=True)
         for single_answer in answer:
             single_answer = r_utils.normalize(single_answer)
-            single_answer = PROCESS_TOK.tokenize(single_answer)
+            single_answer = tokenize_text(single_answer)
             single_answer = single_answer.words(uncased=True)
             for i in range(0, len(text) - len(single_answer) + 1):
                 if single_answer == text[i: i + len(single_answer)]:
@@ -85,13 +104,34 @@ def has_answer(answer, doc_id, match):
     return False
 
 
-def get_score(answer_doc, match):
+def get_score(answer_doc, match, use_text=False):
     """Search through all the top docs to see if they have the answer."""
-    answer, (doc_ids, doc_scores) = answer_doc
-    for doc_id in doc_ids:
-        if has_answer(answer, doc_id, match):
+    if use_text:
+        answer, doc_data = answer_doc
+    else:
+        answer, (doc_data, doc_scores) = answer_doc
+
+    for doc_datum in doc_data:
+        if has_answer(answer, doc_datum, match, use_text):
             return 1
     return 0
+
+
+def get_answer_label(answer_doc, match, use_text=False):
+    """Search through all the top docs to see if they have the answer."""
+    if use_text:
+        answer, doc_data = answer_doc
+    else:
+        answer, (doc_data, doc_scores) = answer_doc
+
+    answer_labels = []
+    for doc_datum in doc_data:
+        if has_answer(answer, doc_datum, match, use_text):
+            answer_labels += [1.0]
+        else:
+            answer_labels += [0.0]
+
+    return answer_labels
 
 
 # ------------------------------------------------------------------------------
