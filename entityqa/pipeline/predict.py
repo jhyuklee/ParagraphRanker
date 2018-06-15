@@ -20,6 +20,7 @@ from root import tokenizers
 from root.ranker import data, utils
 from root.pipeline.pipeline import QAPipeline
 from root.retriever.doc_db import DocDB
+from root.retriever.eval import init, regex_match, has_answer, get_score 
 import root.retriever.utils as r_utils
 
 logger = logging.getLogger()
@@ -52,7 +53,7 @@ DOC_DB_PATH = os.path.join(PATHS['WIKI'], 'docs.db')
 READER_PATH = {
     'default': os.path.join(PATHS['READER'], '20180613-a4fbf221.mdl'),
     'SQuAD': os.path.join(PATHS['READER'], '20180402-20e74b70.mdl'),
-    'TREC': os.path.join(PATHS['READER'], '20180402-b6765c55.mdl'),
+    'TREC': os.path.join(PATHS['READER'], '20180613-a4fbf221.mdl'),
     'WebQ': os.path.join(PATHS['READER'], '20180402-14e759b0.mdl'),
     'WikiM': os.path.join(PATHS['READER'], '20180402-018b239a.mdl'),
 }
@@ -101,8 +102,16 @@ def add_train_args(parser):
     runtime.add_argument('--random-seed', type=int, default=1013,
                          help=('Random seed for all numpy/torch/cuda '
                                'operations (for reproducibility)'))
+    runtime.add_argument('--train', type='bool', default=False,
+                        help='if train modules')
+    runtime.add_argument('--train-epoch', type=int, default=30,
+                         help='number of training epoch')
     runtime.add_argument('--predict-batch-size', type=int, default=100,
                          help='Batch size for question prediction')
+    runtime.add_argument('--module-batch-size', type=int, default=64,
+                         help='Batch size for reader/ranker in pipeline')
+    runtime.add_argument('--module-max-loaders', type=int, default=5,
+                         help='Max num loaders for reader/ranker dataset')
     runtime.add_argument('--n-docs', type=int, default=20,
                          help=('Number of documents for filtering'))
     runtime.add_argument('--n-pars', type=int, default=200,
@@ -167,6 +176,7 @@ def set_defaults(args):
 
     # Set logging
     args.log_file = os.path.join(args.model_dir, args.model_name + '.txt')
+    args.ranker_file = os.path.join(args.model_dir, args.model_name + '.ranker')
     args.pred_file = os.path.join(args.model_dir, 
                                   'pred_{}.json'.format(args.model_name))
     logger.setLevel(logging.INFO)
@@ -209,72 +219,6 @@ def set_defaults(args):
     return args
 
 
-PROCESS = {
-    'TOK': None,
-    'DB': None,
-    'CANDS': None,
-}
-
-
-def init(tokenizer_class, tokenizer_opts, db_class, db_opts, candidates=None):
-    global PROCESS
-    PROCESS['TOK'] = tokenizer_class(**tokenizer_opts)
-    Finalize(PROCESS['TOK'], PROCESS['TOK'].shutdown, exitpriority=100)
-    PROCESS['DB'] = db_class(**db_opts)
-    Finalize(PROCESS['DB'], PROCESS['DB'].close, exitpriority=100)
-    PROCESS['CANDS'] = candidates
-
-
-def regex_match(text, pattern):
-    """Test if a regex pattern is contained within a text."""
-    try:
-        pattern = re.compile(
-            pattern,
-            flags=re.IGNORECASE + re.UNICODE + re.MULTILINE,
-        )
-    except BaseException:
-        return False
-    return pattern.search(text) is not None
-
-
-def has_answer(answer, doc_text, match, PROCESS):
-    """Check if a document contains an answer string.
-
-    If `match` is string, token matching is done between the text and answer.
-    If `match` is regex, we search the whole text with the regex.
-    """
-    # doc_text = PROCESS['DB'].get_doc_text(doc_id)
-    text = r_utils.normalize(doc_text)
-    if match == 'string':
-        # Answer is a list of possible strings
-        text = PROCESS['TOK'].tokenize(text).words(uncased=True)
-        for single_answer in answer:
-            single_answer = r_utils.normalize(single_answer)
-            single_answer = PROCESS['TOK'].tokenize(single_answer)
-            single_answer = single_answer.words(uncased=True)
-            for i in range(0, len(text) - len(single_answer) + 1):
-                if single_answer == text[i: i + len(single_answer)]:
-                    return True
-    elif match == 'regex':
-        # Answer is a regex
-        single_answer = r_utils.normalize(answer[0])
-        if regex_match(text, single_answer):
-            return True
-    else:
-        assert False, 'What is this? {}'.format(match)
-
-    return False
-
-
-def get_score(answer_doc, match, PROCESS):
-    """Search through all the top docs to see if they have the answer."""
-    answer, doc_texts = answer_doc
-    for doc_text in doc_texts:
-        if has_answer(answer, doc_text, match, PROCESS):
-            return 1
-    return 0
-
-
 def main(args):
     # Read query data
     start = time.time()
@@ -301,11 +245,13 @@ def main(args):
 
     # get the closest docs for each question.
     logger.info('Initializing pipeline...')
-    tok_class = tokenizers.get_class(args.tokenizer)
     pipeline = QAPipeline(retriever_path=args.retriever_path,
                           db_path=args.db_path,
                           ranker_path=args.ranker_path,
                           reader_path=args.reader_path,
+                          module_batch_size=args.module_batch_size,
+                          module_max_loaders=args.module_max_loaders,
+                          module_cuda=args.cuda,
                           fixed_candidates=candidates)
 
     # Batcify questions and feed for prediction
@@ -315,23 +261,47 @@ def main(args):
         for i in range(0, len(answers), args.predict_batch_size)]
 
     # Predict and record results
-    logger.info('Predicting...')
-    closest_pars = []
-    with open(args.pred_file, 'w') as pred_f:
-        for i, (batch, target) in enumerate(zip(batches, batches_targets)):
-            logger.info(
-                '-' * 25 + ' Batch %d/%d ' % (i + 1, len(batches)) + '-' * 25
-            )
-            with torch.no_grad():
-                closest_par, predictions = pipeline.predict(batch, target,
-                                                            n_docs=args.n_docs,
-                                                            n_pars=args.n_pars)
-                closest_pars += closest_par
-            for p in predictions:
-                pred_f.write(json.dumps(p) + '\n')
-    answers_pars = zip(answers, closest_pars)
+    logger.info('Predicting...' if not args.train else 'Training...')
+    if args.train:
+        best_loss = 9999999
+        train_loss = utils.AverageMeter()
+        for e_idx in range(args.train_epoch):
+            logger.info('Epoch {}'.format(e_idx+1))
+            for i, (batch, target) in enumerate(zip(batches, batches_targets)):
+                logger.info(
+                    '-' * 25 + ' Batch %d/%d ' % (i + 1, len(batches)) + '-' * 25
+                )
+                loss = pipeline.update(batch, target, 
+                                       n_docs=args.n_docs, n_pars=args.n_pars)
+                train_loss.update(loss, 1)
+                
+            if train_loss.avg < best_loss:
+                logger.info('Best loss = %.3f' % train_loss.avg)
+                pipeline.ranker.save(args.ranker_file)
+                best_loss = train_loss.avg
+
+        logger.info('Training done')
+        exit()
+    else:
+        closest_pars = []
+        with open(args.pred_file, 'w') as pred_f:
+            for i, (batch, target) in enumerate(zip(batches, batches_targets)):
+                logger.info(
+                    '-' * 25 + ' Batch %d/%d ' % (i + 1, len(batches)) + '-' * 25
+                )
+                with torch.no_grad():
+                    closest_par, predictions = pipeline.predict(batch,
+                                                                n_docs=args.n_docs,
+                                                                n_pars=args.n_pars)
+                    closest_pars += closest_par
+
+                for p in predictions:
+                    pred_f.write(json.dumps(p) + '\n')
+
+            answers_pars = zip(answers, closest_pars)
 
     # define processes
+    tok_class = tokenizers.get_class(args.tokenizer)
     tok_opts = {}
     db_class = DocDB
     db_opts = {'db_path': args.db_path}
@@ -343,7 +313,7 @@ def main(args):
 
     # compute the scores for each pair, and print the statistics
     logger.info('Retrieving and computing scores...')
-    get_score_partial = partial(get_score, match=args.match)
+    get_score_partial = partial(get_score, match=args.match, use_text=True)
     scores = processes.map(get_score_partial, answers_pars)
 
     filename = os.path.basename(args.query_data)

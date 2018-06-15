@@ -24,14 +24,16 @@ from multiprocessing.util import Finalize
 from functools import partial
 
 from root import tokenizers
-from root.retriever import utils
+from root.retriever import utils as r_utils
 from root.retriever.tfidf_doc_ranker import TfidfDocRanker
 from root.retriever.doc_db import DocDB
+from root.retriever.eval import init, get_answer_label, fetch_text, tokenize_text 
 
 from root.ranker.model import ParagraphRanker
 from root.ranker.data import RankerDataset, RankerBatchSampler
-from root.ranker.vector import ranker_dev_batchify
+from root.ranker.vector import ranker_train_batchify, ranker_dev_batchify
 
+from root.reader import utils
 from root.reader.model import DocReader
 from root.reader.data import ReaderDataset, ReaderBatchSampler
 from root.reader.vector import reader_batchify
@@ -40,47 +42,23 @@ from root.reader.vector import reader_batchify
 logger = logging.getLogger(__name__)
 
 
-PROCESS_TOK = None
-PROCESS_DB = None
-PROCESS_CANDS = None
-
-
-def init(tokenizer_class, tokenizer_opts, db_class, db_opts, candidates=None):
-    global PROCESS_TOK, PROCESS_DB, PROCESS_CANDS
-    PROCESS_TOK = tokenizer_class(**tokenizer_opts)
-    Finalize(PROCESS_TOK, PROCESS_TOK.shutdown, exitpriority=100)
-    PROCESS_DB = db_class(**db_opts)
-    Finalize(PROCESS_DB, PROCESS_DB.close, exitpriority=100)
-    PROCESS_CANDS = candidates
-
-
-def fetch_text(doc_id):
-    global PROCESS_DB
-    return PROCESS_DB.get_doc_text(doc_id)
-
-
-def tokenize_text(text):
-    global PROCESS_TOK
-    return PROCESS_TOK.tokenize(text)
-
-
 class QAPipeline(object):
     GROUP_LENGTH = 0
     """Loads a pre-weighted inverted index of token/document terms.
     Scores new queries by taking sparse dot products.
     """
 
-    def __init__(self, retriever_path, db_path, ranker_path, reader_path, strict=True,
+    def __init__(self, retriever_path, db_path, ranker_path, reader_path, 
+                 module_batch_size, module_max_loaders, module_cuda, strict=True,
                  fixed_candidates=None):
         """
         Args:
             strict: fail on empty queries or continue (and return empty result)
         """
         # Manually set
-        # TODO: Pass args from predict.py
-        self.max_loaders = 5
-        self.cuda = True
-        self.batch_size = 64
+        self.max_loaders = module_max_loaders
+        self.cuda = module_cuda
+        self.batch_size = module_batch_size
         self.fixed_candidates = fixed_candidates
 
         # Load retriever
@@ -133,7 +111,9 @@ class QAPipeline(object):
 
     def _get_ranker_loader(self, data, num_loaders):
         """Return a pytorch data iterator for provided examples."""
-        dataset = RankerDataset(data, self.ranker, 1, 1000)
+        dataset = RankerDataset(data, self.ranker,
+                                neg_size=1, 
+                                allowed_size=1000)
         sampler = RankerBatchSampler(
             dataset.lengths(),
             self.batch_size,
@@ -169,8 +149,7 @@ class QAPipeline(object):
 
         return loader
 
-    def predict(self, queries, answers, candidates=None, n_docs=5, n_pars=10):
-        t0 = time.time()
+    def get_documents(self, queries, n_docs):
         logger.info('Processing %d queries...' % len(queries))
         logger.info('Retrieving top %d docs...' % n_docs)
 
@@ -205,6 +184,93 @@ class QAPipeline(object):
         s_tokens = self.processes.map_async(tokenize_text, flat_splits)
         q_tokens = q_tokens.get()
         s_tokens = s_tokens.get()
+        
+        return q_tokens, s_tokens, flat_splits, all_docids, all_doc_scores, \
+            did2didx, didx2sidx
+
+    def get_paragraphs_entities(self, queries, n_pars):
+        logger.info('Processing %d queries...' % len(queries))
+        logger.info('Retrieving top %d pars...' % n_pars)
+
+        ranked = self.retriever.batch_closest_docs(
+            queries, k=n_pars, num_workers=self.num_workers
+        )
+        all_parids, all_parmeta = zip(*ranked)
+        
+        # TODO
+        # Fetch text of paragraphs based on par ids
+
+        # Fetch text of queries
+        q_tokens = self.processes.map_async(tokenize_text, queries)
+        q_tokens = q_tokens.get()
+        
+        return q_tokens, p_tokens, p_raws, all_parids, all_parmeta 
+
+    def update(self, queries, answers, candidates=None, n_docs=20, n_pars=200):
+        t0 = time.time()
+        q_tokens, s_tokens, flat_splits, all_docids, all_doc_scores, did2didx, \
+            didx2sidx = self.get_documents(queries, n_docs)
+
+        paragraphs = []
+        for qidx in range(len(queries)):
+            rel_pars = []
+            for rel_didx, did in enumerate(all_docids[qidx]):
+                start, end = didx2sidx[did2didx[did]]
+                for sidx in range(start, end):
+                    rel_pars += [flat_splits[sidx]]
+            paragraphs += [rel_pars]
+
+        answers_pars = zip(answers, paragraphs)
+        get_al_partial = partial(get_answer_label, match='regex', use_text=True)
+        answer_labels = self.processes.map(get_al_partial, answers_pars)
+        # print(queries[2])
+        # print(answers[2])
+        # print([(p, a) for p, a in zip(paragraphs[2][:200], answer_labels[2][:200]) if a == 1.0])
+        # TODO: Not all paragraphs that contain answers give clue on the answers
+        assert len(paragraphs) == len(answer_labels)
+        assert len(paragraphs[0]) == len(answer_labels[0])
+
+        examples = []
+        checksum = 0
+        for qidx in range(len(queries)):
+            p_idx = 0
+            for rel_didx, did in enumerate(all_docids[qidx]):
+                start, end = didx2sidx[did2didx[did]]
+                for sidx in range(start, end):
+                    if (len(q_tokens[qidx].words()) > 0 and
+                            len(s_tokens[sidx].words()) > 0):
+                        examples.append({
+                            'id': (qidx, rel_didx, sidx),
+                            'question': q_tokens[qidx].words(),
+                            'document': s_tokens[sidx].words(),
+                            'target': answer_labels[qidx][p_idx],
+                        })
+                        p_idx += 1
+                    else:
+                        assert False, 'Should not be zero'
+            checksum += p_idx
+
+        # Docids overlap between queries
+        logger.info('Ranking {}/{} paragraphs...'.format(len(examples), checksum))
+
+        # Push all examples through the document encoder.
+        # We decode argmax start/end indices asychronously on CPU.
+        ex_ids = []
+        train_loss = utils.AverageMeter()
+        num_loaders = min(self.max_loaders, math.floor(len(examples) / 1e3))
+        for batch in self._get_ranker_loader(examples, num_loaders):
+            train_loss.update(*self.ranker.update(batch))
+
+        logger.info('ranker loss = {:.3f}'.format(train_loss.avg))
+        logger.info('Processed %d queries in %.4f (s)' %
+                    (len(queries), time.time() - t0))
+        
+        return train_loss.avg
+
+    def predict(self, queries, candidates=None, n_docs=20, n_pars=200):
+        t0 = time.time()
+        q_tokens, s_tokens, flat_splits, all_docids, all_doc_scores, did2didx, \
+            didx2sidx = self.get_documents(queries, n_docs)
 
         # Group into structured example inputs. Examples' ids represent
         # mappings to their question, document, and split ids.
@@ -266,7 +332,7 @@ class QAPipeline(object):
         # Untokenize paragraphs
         paragraphs = []
         for qidx in range(len(queries)):
-            paragraphs += [[s_tokens[k[0]].untokenize() for k in q_best[qidx]]]
+            paragraphs += [[flat_splits[k[0]] for k in q_best[qidx]]]
 
         # Ready for reader inputs
         reader_examples = []
