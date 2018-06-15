@@ -45,6 +45,8 @@ class Indexer(object):
         self.idx2entity = dict()
         self.entity2idx['UNK'] = 0
         self.idx2entity[0] = 'UNK'
+        self.entitytype2idx = dict()
+        self.entitytype2idx['UNK'] = 0
         self.entity_dict = dict()
         print('Init. Done')
 
@@ -78,6 +80,7 @@ class Indexer(object):
             paragraphs = doc_dict['paragraphs']
             for p_idx, p in enumerate(paragraphs):
 
+                # TODO remove .strip() after docs.db splitter change
                 p_text = p['text'].strip()
 
                 if len(p_text) == 0:
@@ -104,21 +107,25 @@ class Indexer(object):
 
                         entity_key = entity['text'] + '\t' + entity['label_']
 
+                        etypeidx = self.entitytype2idx.get(entity['label'])
+                        if etypeidx is None:
+                            etypeidx = len(self.entitytype2idx)
+                            self.entitytype2idx[entity['label']] = etypeidx
+
                         eidx = self.entity2idx.get(entity_key)
                         if eidx is None:
                             eidx = len(self.entity2idx)
                             self.entity2idx[entity_key] = eidx
                             self.idx2entity[eidx] = entity_key
                             self.entity_dict[eidx] = \
-                                (entity['text'], entity['label_'],
-                                 entity['label'])
+                                (entity['text'], entity['label_'], etypeidx)
 
                         entity_idx_set.add(eidx)
-                        entity_type_id_set.add(entity['label'])
+                        entity_type_id_set.add(etypeidx)
                         entity_positions.append((eidx, entity['start_char'],
                                                  entity['end_char']))
 
-                        ent_set.add((eidx, entity['label']))
+                        ent_set.add((eidx, etypeidx))
 
                     if len(entity_idx_set) > 0:
                         lucene_doc.add(
@@ -152,7 +159,8 @@ class Indexer(object):
 
                 if num_paragraphs % log_interval == 0:
                     print(datetime.now(), 'Added #paragraphs', num_paragraphs,
-                          '#wikidocs', d_idx + 1)
+                          '#wikidocs', d_idx + 1,
+                          '#entities', len(self.entity_dict))
 
         print('#paragraphs', num_paragraphs)
         print('#skipped_empty_paragraphs', num_empty_paragraphs)
@@ -162,12 +170,12 @@ class Indexer(object):
             # skip UNK
             if entity_idx == self.entity2idx['UNK']:
                 continue
-            ename, etype, etype_id = self.entity_dict[entity_idx]
+            ename, etype, etype_idx = self.entity_dict[entity_idx]
             entity_doc = Document()
             entity_doc.add(Field("name", ename, t2_tk))
             entity_doc.add(Field("type", etype, t1))
             entity_doc.add(Field("eid", str(entity_idx), t1))
-            entity_doc.add(Field("etid", str(etype_id), t1))
+            entity_doc.add(Field("etid", str(etype_idx), t1))
             self.writer.addDocument(entity_doc)
             if (e_dict_idx + 1) % (10 * log_interval) == 0:
                 print(datetime.now(), '#entities', e_dict_idx + 1)
@@ -190,12 +198,14 @@ def get_binary4dvs(ent_set):
         return binary
     elif ent_size == 1:  # single -> even
         for eidx, etype in ent_set:
+            assert eidx >= 0 and etype >= 0
             binary += write_vint(eidx << 1)
             binary += write_vint(etype)
             break  # double check
     else:  # multiple -> odd
         binary += write_vint((ent_size << 1) + 1)  # write # of entities
         for eidx, etype in ent_set:
+            assert eidx >= 0 and etype >= 0
             binary += write_vint(eidx)
             binary += write_vint(etype)
     return binary

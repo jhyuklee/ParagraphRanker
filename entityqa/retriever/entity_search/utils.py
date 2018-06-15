@@ -46,19 +46,29 @@ class BinaryReader(object):
 
 
 def test():
-    vint_ex1 = write_vint(1)
+    vint_ex1 = write_vint(1 << 0)
     print(list(vint_ex1))
     br = BinaryReader(vint_ex1)
     print(br.read_vint())
 
-    vint_ex2 = write_vint(128)
+    vint_ex2 = write_vint(1 << 7)
     print(list(vint_ex2))
     br = BinaryReader(vint_ex2)
     print(br.read_vint())
 
-    vint_ex3 = write_vint(16384)
+    vint_ex3 = write_vint(1 << 14)
     print(list(vint_ex3))
     br = BinaryReader(vint_ex3)
+    print(br.read_vint())
+
+    vint_ex4 = write_vint(1 << 21)
+    print(list(vint_ex4))
+    br = BinaryReader(vint_ex4)
+    print(br.read_vint())
+
+    vint_ex5 = write_vint((1 << 28) - 1)  # 4-bytes max
+    print(list(vint_ex5))
+    br = BinaryReader(vint_ex5)
     print(br.read_vint())
 
 

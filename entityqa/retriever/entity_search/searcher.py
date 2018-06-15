@@ -9,13 +9,17 @@ from org.apache.lucene.queryparser.classic import QueryParser
 from org.apache.lucene.search import IndexSearcher
 from org.apache.lucene.store import FSDirectory
 
+from kr.ac.korea.dmis.search import TopEntitiesCollector
+
 # Ref.
 # https://github.com/apache/lucene-solr/blob/branch_6_5/lucene/demo/src/java/org/apache/lucene/demo/SearchFiles.java
 
 
 lucene.initVM()
 
-q = 'what is the highest mountain?'
+# tec = TopEntitiesCollector(10, True)  # raise an error
+
+q = 'highest mountain'
 field = 'content'
 index_dir = os.path.join('/media/donghyeonkim/'
                          'f7c53837-2156-4793-b2b1-4b0578dffef1/entityqa',
