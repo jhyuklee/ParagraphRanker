@@ -149,7 +149,7 @@ class QAPipeline(object):
 
         return loader
 
-    def get_paragraphs(self, queries, n_docs):
+    def get_documents(self, queries, n_docs):
         logger.info('Processing %d queries...' % len(queries))
         logger.info('Retrieving top %d docs...' % n_docs)
 
@@ -185,13 +185,31 @@ class QAPipeline(object):
         q_tokens = q_tokens.get()
         s_tokens = s_tokens.get()
         
-        return q_tokens, s_tokens, flat_splits, all_docids, all_doc_scores, flat_docids, \
+        return q_tokens, s_tokens, flat_splits, all_docids, all_doc_scores, \
             did2didx, didx2sidx
+
+    def get_paragraphs_entities(self, queries, n_pars):
+        logger.info('Processing %d queries...' % len(queries))
+        logger.info('Retrieving top %d pars...' % n_pars)
+
+        ranked = self.retriever.batch_closest_docs(
+            queries, k=n_pars, num_workers=self.num_workers
+        )
+        all_parids, all_parmeta = zip(*ranked)
+        
+        # TODO
+        # Fetch text of paragraphs based on par ids
+
+        # Fetch text of queries
+        q_tokens = self.processes.map_async(tokenize_text, queries)
+        q_tokens = q_tokens.get()
+        
+        return q_tokens, p_tokens, p_raws, all_parids, all_parmeta 
 
     def update(self, queries, answers, candidates=None, n_docs=20, n_pars=200):
         t0 = time.time()
-        q_tokens, s_tokens, flat_splits, all_docids, all_doc_scores, flat_docids, did2didx, \
-            didx2sidx = self.get_paragraphs(queries, n_docs)
+        q_tokens, s_tokens, flat_splits, all_docids, all_doc_scores, did2didx, \
+            didx2sidx = self.get_documents(queries, n_docs)
 
         paragraphs = []
         for qidx in range(len(queries)):
@@ -232,6 +250,7 @@ class QAPipeline(object):
                         assert False, 'Should not be zero'
             checksum += p_idx
 
+        # Docids overlap between queries
         logger.info('Ranking {}/{} paragraphs...'.format(len(examples), checksum))
 
         # Push all examples through the document encoder.
@@ -241,14 +260,17 @@ class QAPipeline(object):
         num_loaders = min(self.max_loaders, math.floor(len(examples) / 1e3))
         for batch in self._get_ranker_loader(examples, num_loaders):
             train_loss.update(*self.ranker.update(batch))
+
         logger.info('ranker loss = {:.3f}'.format(train_loss.avg))
+        logger.info('Processed %d queries in %.4f (s)' %
+                    (len(queries), time.time() - t0))
         
         return train_loss.avg
 
     def predict(self, queries, candidates=None, n_docs=20, n_pars=200):
         t0 = time.time()
-        q_tokens, s_tokens, flat_splits, all_docids, all_doc_scores, flat_docids, did2didx, \
-            didx2sidx = self.get_paragraphs(queries, n_docs)
+        q_tokens, s_tokens, flat_splits, all_docids, all_doc_scores, did2didx, \
+            didx2sidx = self.get_documents(queries, n_docs)
 
         # Group into structured example inputs. Examples' ids represent
         # mappings to their question, document, and split ids.
@@ -267,7 +289,6 @@ class QAPipeline(object):
                     else:
                         assert False, 'Should not be zero'
 
-        # TODO: why different from len(flat_splits) ?
         logger.info('Ranking %d paragraphs...' % len(examples))
 
         # Push all examples through the document encoder.
@@ -311,7 +332,7 @@ class QAPipeline(object):
         # Untokenize paragraphs
         paragraphs = []
         for qidx in range(len(queries)):
-            paragraphs += [[s_tokens[k[0]].untokenize() for k in q_best[qidx]]]
+            paragraphs += [[flat_splits[k[0]] for k in q_best[qidx]]]
 
         # Ready for reader inputs
         reader_examples = []

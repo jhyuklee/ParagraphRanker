@@ -104,6 +104,8 @@ def add_train_args(parser):
                                'operations (for reproducibility)'))
     runtime.add_argument('--train', type='bool', default=False,
                         help='if train modules')
+    runtime.add_argument('--train-epoch', type=int, default=30,
+                         help='number of training epoch')
     runtime.add_argument('--predict-batch-size', type=int, default=100,
                          help='Batch size for question prediction')
     runtime.add_argument('--module-batch-size', type=int, default=64,
@@ -260,21 +262,33 @@ def main(args):
 
     # Predict and record results
     logger.info('Predicting...' if not args.train else 'Training...')
-    closest_pars = []
-    best_loss = 9999999
-    with open(args.pred_file, 'w') as pred_f:
-        for i, (batch, target) in enumerate(zip(batches, batches_targets)):
-            logger.info(
-                '-' * 25 + ' Batch %d/%d ' % (i + 1, len(batches)) + '-' * 25
-            )
-            if args.train:
+    if args.train:
+        best_loss = 9999999
+        train_loss = utils.AverageMeter()
+        for e_idx in range(args.train_epoch):
+            logger.info('Epoch {}'.format(e_idx+1))
+            for i, (batch, target) in enumerate(zip(batches, batches_targets)):
+                logger.info(
+                    '-' * 25 + ' Batch %d/%d ' % (i + 1, len(batches)) + '-' * 25
+                )
                 loss = pipeline.update(batch, target, 
                                        n_docs=args.n_docs, n_pars=args.n_pars)
-                if loss < best_loss:
-                    logger.info('Best loss = %.3f' % loss)
-                    pipeline.ranker.save(args.ranker_file)
-                    best_loss = loss
-            else:
+                train_loss.update(loss, 1)
+                
+            if train_loss.avg < best_loss:
+                logger.info('Best loss = %.3f' % train_loss.avg)
+                pipeline.ranker.save(args.ranker_file)
+                best_loss = train_loss.avg
+
+        logger.info('Training done')
+        exit()
+    else:
+        closest_pars = []
+        with open(args.pred_file, 'w') as pred_f:
+            for i, (batch, target) in enumerate(zip(batches, batches_targets)):
+                logger.info(
+                    '-' * 25 + ' Batch %d/%d ' % (i + 1, len(batches)) + '-' * 25
+                )
                 with torch.no_grad():
                     closest_par, predictions = pipeline.predict(batch,
                                                                 n_docs=args.n_docs,
@@ -284,11 +298,7 @@ def main(args):
                 for p in predictions:
                     pred_f.write(json.dumps(p) + '\n')
 
-    if args.train:
-        logger.info('Training done')
-        exit()
-
-    answers_pars = zip(answers, closest_pars)
+            answers_pars = zip(answers, closest_pars)
 
     # define processes
     tok_class = tokenizers.get_class(args.tokenizer)
