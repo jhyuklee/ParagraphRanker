@@ -14,7 +14,7 @@ import sys
 import time
 import threading
 from preprocess_nlp import DocDB
-from utils import write_vint
+from utils import get_vint_bytes
 
 # Ref.
 # http://svn.apache.org/viewvc/lucene/pylucene/trunk/samples/IndexFiles.py
@@ -48,6 +48,7 @@ class Indexer(object):
         self.entitytype2idx = dict()
         self.entitytype2idx['UNK'] = 0
         self.entity_dict = dict()
+        self.num_entities_max = -1
         print('Init. Done')
 
     def index_docs(self, log_interval=100000):
@@ -122,7 +123,8 @@ class Indexer(object):
 
                         entity_idx_set.add(eidx)
                         entity_type_id_set.add(etypeidx)
-                        entity_positions.append((eidx, entity['start_char'],
+                        entity_positions.append((eidx, etypeidx,
+                                                 entity['start_char'],
                                                  entity['end_char']))
 
                         ent_set.add((eidx, etypeidx))
@@ -138,21 +140,26 @@ class Indexer(object):
                                   '\t'.join([str(etid)
                                              for etid in entity_type_id_set]),
                                   t2_tk))
-                        lucene_doc.add(
-                            Field("entity_position",
-                                  '\t'.join(['{},{},{}'.
-                                            format(eidx, start_char, end_char)
-                                             for eidx, start_char, end_char
-                                             in entity_positions]),
-                                  t1))
 
-                lucene_doc.add(
-                    BinaryDocValuesField("eqa_bin",
-                                         BytesRef(get_binary4dvs(ent_set))))
+                        positions = \
+                            '\t'.join(['{},{},{},{}'
+                                      .format(eidx, etidx, start_char, end_char)
+                                       for eidx, etidx, start_char, end_char
+                                       in entity_positions])
+                        lucene_doc.add(Field("entity_position", positions, t1))
+
+                if self.num_entities_max < len(ent_set):
+                    self.num_entities_max = len(ent_set)
+
+                binary = get_binary4dvs(ent_set)
+
+                # https://lucene.apache.org/pylucene/jcc/features.html
+                br = BytesRef(lucene.JArray('byte')(binary))
+                lucene_doc.add(BinaryDocValuesField("eqa_bin", br))
+
                 # # debug
-                # lucene_doc.add(
-                #     StoredField("eqa_bin_store",
-                #                 BytesRef(get_binary4dvs(ent_set))))
+                # lucene_doc.add(StoredField("eqa_bin_store", br))
+                # lucene_doc.add(StoredField("bin_raw", binary.hex()))
 
                 self.writer.addDocument(lucene_doc)
                 num_paragraphs += 1
@@ -181,6 +188,7 @@ class Indexer(object):
                 print(datetime.now(), '#entities', e_dict_idx + 1)
 
         print('#entities', len(self.entity2idx) - 1)
+        print('#entities_max', self.num_entities_max)
 
         ticker = Ticker()
         print('commit index')
@@ -191,7 +199,7 @@ class Indexer(object):
         print('done')
 
 
-def get_binary4dvs(ent_set):
+def get_binary4dvs(ent_set, write_type=True):
     binary = bytes()
     ent_size = len(ent_set)
     if ent_size == 0:
@@ -199,15 +207,17 @@ def get_binary4dvs(ent_set):
     elif ent_size == 1:  # single -> even
         for eidx, etype in ent_set:
             assert eidx >= 0 and etype >= 0
-            binary += write_vint(eidx << 1)
-            binary += write_vint(etype)
+            binary += get_vint_bytes(eidx << 1)
+            if write_type:
+                binary += get_vint_bytes(etype)
             break  # double check
     else:  # multiple -> odd
-        binary += write_vint((ent_size << 1) + 1)  # write # of entities
+        binary += get_vint_bytes((ent_size << 1) + 1)  # write # of entities
         for eidx, etype in ent_set:
             assert eidx >= 0 and etype >= 0
-            binary += write_vint(eidx)
-            binary += write_vint(etype)
+            binary += get_vint_bytes(eidx)
+            if write_type:
+                binary += get_vint_bytes(etype)
     return binary
 
 
