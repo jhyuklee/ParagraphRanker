@@ -152,8 +152,7 @@ def preprocess_worker(doc_id, log_interval=1000):
 def get_doc_paragraphs_json(doc_text, nlp):
     paragraph_infos = list()
     paragraphs = _split_doc(doc_text)
-
-    for p_idx, p in enumerate(paragraphs):
+    for p in paragraphs:
         paragraph_infos.append(get_p_dict(p, nlp))
     return json.dumps({'paragraphs': paragraph_infos})
 

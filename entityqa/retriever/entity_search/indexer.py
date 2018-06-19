@@ -69,6 +69,8 @@ class Indexer(object):
 
         num_paragraphs = 0
         num_empty_paragraphs = 0
+        no_entity_paragraphs = 0
+        num_avg_entities = 0
 
         # get docs from our sqlite db
         for d_idx, doc_id in enumerate(self.doc_ids):
@@ -81,22 +83,24 @@ class Indexer(object):
             paragraphs = doc_dict['paragraphs']
             for p_idx, p in enumerate(paragraphs):
 
-                # TODO remove .strip() after docs.db splitter change
-                p_text = p['text'].strip()
+                p_text = p['text']
 
                 if len(p_text) == 0:
                     num_empty_paragraphs += 1
                     continue
 
                 lucene_doc = Document()
-                lucene_doc.add(Field("wiki_doc_id", doc_id, t2_tk))  # TODO
+                lucene_doc.add(Field("wiki_doc_id", doc_id, t2_tk))
                 lucene_doc.add(Field("p_idx", str(p_idx), t1))
                 lucene_doc.add(Field("content", p_text, t2_tk))
 
                 # Named-entities
                 ents = p['ents']
                 ent_set = set()
+
                 if len(ents) > 0:
+
+                    num_avg_entities += len(ents)
 
                     entity_idx_set = set()
                     entity_type_id_set = set()
@@ -147,6 +151,8 @@ class Indexer(object):
                                        for eidx, etidx, start_char, end_char
                                        in entity_positions])
                         lucene_doc.add(Field("entity_position", positions, t1))
+                else:
+                    no_entity_paragraphs += 1
 
                 if self.num_entities_max < len(ent_set):
                     self.num_entities_max = len(ent_set)
@@ -170,7 +176,14 @@ class Indexer(object):
                           '#entities', len(self.entity_dict))
 
         print('#paragraphs', num_paragraphs)
-        print('#skipped_empty_paragraphs', num_empty_paragraphs)
+        print('#no_entity_paragraphs', no_entity_paragraphs,
+              '{:.2f}%'.format(100*no_entity_paragraphs/num_paragraphs))
+        print('avg num of entities {:.2f}'
+              .format(num_avg_entities /
+                      (num_paragraphs - no_entity_paragraphs)))
+
+        if num_empty_paragraphs > 0:
+            print('#skipped_empty_paragraphs', num_empty_paragraphs)
 
         print('\nAdding entity docs..')
         for e_dict_idx, entity_idx in enumerate(self.entity_dict):
@@ -199,7 +212,7 @@ class Indexer(object):
         print('done')
 
 
-def get_binary4dvs(ent_set, write_type=True):
+def get_binary4dvs(ent_set, write_type=False):
     binary = bytes()
     ent_size = len(ent_set)
     if ent_size == 0:
