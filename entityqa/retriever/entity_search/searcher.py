@@ -22,7 +22,7 @@ from kr.ac.korea.dmis.search import TopDocsE
 # https://github.com/apache/lucene-solr/blob/branch_6_5/lucene/demo/src/java/org/apache/lucene/demo/SearchFiles.java
 
 
-lucene.initVM()
+lucene.initVM(maxheap='4096m')
 
 q = 'highest mountain'
 field = 'content'
@@ -42,7 +42,8 @@ print("Searching for:", query.toString(field))
 
 topdocs = searcher.searchE(query, 5 * hitsPerPage)
 topdocs = TopDocsE.cast_(topdocs)
-hits = topdocs.scoreDocs
+hitEntities = topdocs.scoreDocs
+hitDocs = topdocs.entityWeightedDocs
 numTotalHits = topdocs.totalHits
 numTotalDocs = topdocs.totalDocs
 
@@ -51,8 +52,13 @@ print("{} total matching entities ({} docs)".format(numTotalHits, numTotalDocs))
 start = 0
 end = min(numTotalHits, hitsPerPage)
 
+# entities
 for i in range(end):
-    sde = ScoreDocE.cast_(hits[i])
+
+    assert ScoreDocE.instance_(hitEntities[i])
+
+    sde = hitEntities[i]
+    sde = ScoreDocE.cast_(sde)
     entityDocs = searcher.search(
         TermQuery(Term("eid", str(sde.doc))), 1).scoreDocs
     if len(entityDocs) > 0:
@@ -60,12 +66,19 @@ for i in range(end):
         print("entityDoc name={}\ttype={}\tscore={:.3f}".
               format(entityDoc.get("name"), entityDoc.get("type"), sde.score))
 
-    segNum = sde.segNum
-    print("#paragraphs={}".format(segNum))
+    docNum = sde.docNum
+    print("#paragraphs={}".format(docNum))
+
+    # print(lucene.JArray('object').instance_(sde.docs, ScoreDoc))
 
     # # TODO is it python jcc's problem?
-    # segs = lucene.JArray('object').cast_(sde.segs, ScoreDoc)
-    # for sd in segs:
+    # docs = lucene.JArray('object').cast_(sde.docs, ScoreDoc)
+    # for sd in docs:
     #     print("doc={}\tscore={}".format(sd.doc, sd.score))
 
     print()
+
+# entity score weighted docs
+ewdoc_end = min(numTotalDocs, hitsPerPage)
+for i in range(ewdoc_end):
+    print(hitDocs[i])
