@@ -24,7 +24,8 @@ from kr.ac.korea.dmis.search import TopDocsE
 
 lucene.initVM(maxheap='4096m')
 
-q = 'highest mountain'
+# # for a filter term
+q = 'highest mountain #entity_type_id:5'
 field = 'content'
 index_dir = os.path.join('/media/donghyeonkim/'
                          'f7c53837-2156-4793-b2b1-4b0578dffef1/entityqa',
@@ -55,16 +56,17 @@ end = min(numTotalHits, hitsPerPage)
 # entities
 for i in range(end):
 
-    assert ScoreDocE.instance_(hitEntities[i])
-
     sde = hitEntities[i]
+    assert ScoreDocE.instance_(sde)
     sde = ScoreDocE.cast_(sde)
+
     entityDocs = searcher.search(
         TermQuery(Term("eid", str(sde.doc))), 1).scoreDocs
-    if len(entityDocs) > 0:
-        entityDoc = searcher.doc(entityDocs[0].doc)
-        print("entityDoc name={}\ttype={}\tscore={:.3f}".
-              format(entityDoc.get("name"), entityDoc.get("type"), sde.score))
+    assert len(entityDocs) > 0
+
+    entityDoc = searcher.doc(entityDocs[0].doc)
+    print("entityDoc name={}\ttype={}\tscore={:.3f}".
+          format(entityDoc.get("name"), entityDoc.get("type"), sde.score))
 
     docNum = sde.docNum
     print("#paragraphs={}".format(docNum))
