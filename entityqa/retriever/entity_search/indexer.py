@@ -14,7 +14,7 @@ import sys
 import time
 import threading
 from preprocess_nlp import DocDB
-from utils import write_vint
+from utils import get_vint_bytes
 
 # Ref.
 # http://svn.apache.org/viewvc/lucene/pylucene/trunk/samples/IndexFiles.py
@@ -45,7 +45,10 @@ class Indexer(object):
         self.idx2entity = dict()
         self.entity2idx['UNK'] = 0
         self.idx2entity[0] = 'UNK'
+        self.entitytype2idx = dict()
+        self.entitytype2idx['UNK'] = 0
         self.entity_dict = dict()
+        self.num_entities_max = -1
         print('Init. Done')
 
     def index_docs(self, log_interval=100000):
@@ -66,6 +69,8 @@ class Indexer(object):
 
         num_paragraphs = 0
         num_empty_paragraphs = 0
+        no_entity_paragraphs = 0
+        num_avg_entities = 0
 
         # get docs from our sqlite db
         for d_idx, doc_id in enumerate(self.doc_ids):
@@ -78,21 +83,24 @@ class Indexer(object):
             paragraphs = doc_dict['paragraphs']
             for p_idx, p in enumerate(paragraphs):
 
-                p_text = p['text'].strip()
+                p_text = p['text']
 
                 if len(p_text) == 0:
                     num_empty_paragraphs += 1
                     continue
 
                 lucene_doc = Document()
-                lucene_doc.add(Field("wiki_doc_id", doc_id, t2_tk))  # TODO
+                lucene_doc.add(Field("wiki_doc_id", doc_id, t2_tk))
                 lucene_doc.add(Field("p_idx", str(p_idx), t1))
                 lucene_doc.add(Field("content", p_text, t2_tk))
 
                 # Named-entities
                 ents = p['ents']
                 ent_set = set()
+
                 if len(ents) > 0:
+
+                    num_avg_entities += len(ents)
 
                     entity_idx_set = set()
                     entity_type_id_set = set()
@@ -104,21 +112,26 @@ class Indexer(object):
 
                         entity_key = entity['text'] + '\t' + entity['label_']
 
+                        etypeidx = self.entitytype2idx.get(entity['label'])
+                        if etypeidx is None:
+                            etypeidx = len(self.entitytype2idx)
+                            self.entitytype2idx[entity['label']] = etypeidx
+
                         eidx = self.entity2idx.get(entity_key)
                         if eidx is None:
                             eidx = len(self.entity2idx)
                             self.entity2idx[entity_key] = eidx
                             self.idx2entity[eidx] = entity_key
                             self.entity_dict[eidx] = \
-                                (entity['text'], entity['label_'],
-                                 entity['label'])
+                                (entity['text'], entity['label_'], etypeidx)
 
                         entity_idx_set.add(eidx)
-                        entity_type_id_set.add(entity['label'])
-                        entity_positions.append((eidx, entity['start_char'],
+                        entity_type_id_set.add(etypeidx)
+                        entity_positions.append((eidx, etypeidx,
+                                                 entity['start_char'],
                                                  entity['end_char']))
 
-                        ent_set.add((eidx, entity['label']))
+                        ent_set.add((eidx, etypeidx))
 
                     if len(entity_idx_set) > 0:
                         lucene_doc.add(
@@ -131,48 +144,64 @@ class Indexer(object):
                                   '\t'.join([str(etid)
                                              for etid in entity_type_id_set]),
                                   t2_tk))
-                        lucene_doc.add(
-                            Field("entity_position",
-                                  '\t'.join(['{},{},{}'.
-                                            format(eidx, start_char, end_char)
-                                             for eidx, start_char, end_char
-                                             in entity_positions]),
-                                  t1))
 
-                lucene_doc.add(
-                    BinaryDocValuesField("eqa_bin",
-                                         BytesRef(get_binary4dvs(ent_set))))
+                        positions = \
+                            '\t'.join(['{},{},{},{}'
+                                      .format(eidx, etidx, start_char, end_char)
+                                       for eidx, etidx, start_char, end_char
+                                       in entity_positions])
+                        lucene_doc.add(Field("entity_position", positions, t1))
+                else:
+                    no_entity_paragraphs += 1
+
+                if self.num_entities_max < len(ent_set):
+                    self.num_entities_max = len(ent_set)
+
+                binary = get_binary4dvs(ent_set)
+
+                # https://lucene.apache.org/pylucene/jcc/features.html
+                br = BytesRef(lucene.JArray('byte')(binary))
+                lucene_doc.add(BinaryDocValuesField("eqa_bin", br))
+
                 # # debug
-                # lucene_doc.add(
-                #     StoredField("eqa_bin_store",
-                #                 BytesRef(get_binary4dvs(ent_set))))
+                # lucene_doc.add(StoredField("eqa_bin_store", br))
+                # lucene_doc.add(StoredField("bin_raw", binary.hex()))
 
                 self.writer.addDocument(lucene_doc)
                 num_paragraphs += 1
 
                 if num_paragraphs % log_interval == 0:
                     print(datetime.now(), 'Added #paragraphs', num_paragraphs,
-                          '#wikidocs', d_idx + 1)
+                          '#wikidocs', d_idx + 1,
+                          '#entities', len(self.entity_dict))
 
         print('#paragraphs', num_paragraphs)
-        print('#skipped_empty_paragraphs', num_empty_paragraphs)
+        print('#no_entity_paragraphs', no_entity_paragraphs,
+              '{:.2f}%'.format(100*no_entity_paragraphs/num_paragraphs))
+        print('avg num of entities {:.2f}'
+              .format(num_avg_entities /
+                      (num_paragraphs - no_entity_paragraphs)))
+
+        if num_empty_paragraphs > 0:
+            print('#skipped_empty_paragraphs', num_empty_paragraphs)
 
         print('\nAdding entity docs..')
         for e_dict_idx, entity_idx in enumerate(self.entity_dict):
             # skip UNK
             if entity_idx == self.entity2idx['UNK']:
                 continue
-            ename, etype, etype_id = self.entity_dict[entity_idx]
+            ename, etype, etype_idx = self.entity_dict[entity_idx]
             entity_doc = Document()
             entity_doc.add(Field("name", ename, t2_tk))
             entity_doc.add(Field("type", etype, t1))
             entity_doc.add(Field("eid", str(entity_idx), t1))
-            entity_doc.add(Field("etid", str(etype_id), t1))
+            entity_doc.add(Field("etid", str(etype_idx), t1))
             self.writer.addDocument(entity_doc)
             if (e_dict_idx + 1) % (10 * log_interval) == 0:
                 print(datetime.now(), '#entities', e_dict_idx + 1)
 
         print('#entities', len(self.entity2idx) - 1)
+        print('#entities_max', self.num_entities_max)
 
         ticker = Ticker()
         print('commit index')
@@ -183,21 +212,25 @@ class Indexer(object):
         print('done')
 
 
-def get_binary4dvs(ent_set):
+def get_binary4dvs(ent_set, write_type=False):
     binary = bytes()
     ent_size = len(ent_set)
     if ent_size == 0:
         return binary
     elif ent_size == 1:  # single -> even
         for eidx, etype in ent_set:
-            binary += write_vint(eidx << 1)
-            binary += write_vint(etype)
+            assert eidx >= 0 and etype >= 0
+            binary += get_vint_bytes(eidx << 1)
+            if write_type:
+                binary += get_vint_bytes(etype)
             break  # double check
     else:  # multiple -> odd
-        binary += write_vint((ent_size << 1) + 1)  # write # of entities
+        binary += get_vint_bytes((ent_size << 1) + 1)  # write # of entities
         for eidx, etype in ent_set:
-            binary += write_vint(eidx)
-            binary += write_vint(etype)
+            assert eidx >= 0 and etype >= 0
+            binary += get_vint_bytes(eidx)
+            if write_type:
+                binary += get_vint_bytes(etype)
     return binary
 
 

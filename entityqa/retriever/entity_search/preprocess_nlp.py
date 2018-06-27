@@ -152,8 +152,7 @@ def preprocess_worker(doc_id, log_interval=1000):
 def get_doc_paragraphs_json(doc_text, nlp):
     paragraph_infos = list()
     paragraphs = _split_doc(doc_text)
-
-    for p_idx, p in enumerate(paragraphs):
+    for p in paragraphs:
         paragraph_infos.append(get_p_dict(p, nlp))
     return json.dumps({'paragraphs': paragraph_infos})
 
@@ -179,7 +178,7 @@ def _split_doc(doc, group_length=0):
 
 
 def get_p_dict(p, nlp):
-    p_doc = nlp(p.strip())  # trim and nlp using spaCy
+    p_doc = nlp(p)  # nlp using spaCy
 
     # NER
     ents = list()
@@ -312,3 +311,10 @@ def label_no_label_ids():
 if __name__ == '__main__':
     main()
     # label_no_label_ids()
+    # for d in _split_doc('The highest mountain in this range '
+    #                     'is Keele Peak at asdasd.'
+    #                     '\nThe second highest mountain '
+    #                     'is Mount Nirvana.'
+    #                     '\nIt is, at , the highest mountain '
+    #                     'in the Northwest Territories.', group_length=0):
+    #     print(d)
