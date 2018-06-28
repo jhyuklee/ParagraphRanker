@@ -61,6 +61,7 @@ READER_PATH = {
 # Ranker paths
 RANKER_PATH = {
     'default': os.path.join(PATHS['RANKER'], '20180613-a6982591.mdl'),
+    'TREC': os.path.join(PATHS['RANKER'], '20180618-3f538bf0.ranker'),
     'soft': os.path.join(PATHS['RANKER'], '20180613-a6982591.mdl'),
     'hard': os.path.join(PATHS['RANKER'], '20180419-f5c79d9a.mdl'),
 }
