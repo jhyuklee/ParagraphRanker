@@ -101,5 +101,10 @@ if __name__ == '__main__':
     retriever = EntityRetriever(index_dir)
     ent, pars = retriever.closest_pars('mountain', 100)
     print(ent)
+    print()
     print(pars)
+    print()
+    real_doc = retriever.searcher.doc(pars[0].doc)
+    print(real_doc.get('content'))
+    print()
 
