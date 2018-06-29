@@ -159,8 +159,8 @@ def evaluate(dataset_file, prediction_file, regex=False, top_k=None, alpha=1.0, 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # parser.add_argument('--dataset', type=str, default='../data/datasets/SQuAD-v1.1-dev.txt')
-    parser.add_argument('--dataset', type=str, default='../data/datasets/CuratedTrec-test.txt')
-    # parser.add_argument('--dataset', type=str, default='../data/datasets/WebQuestions-test.txt')
+    # parser.add_argument('--dataset', type=str, default='../data/datasets/CuratedTrec-test.txt')
+    parser.add_argument('--dataset', type=str, default='../data/datasets/WebQuestions-test.txt')
     # parser.add_argument('--dataset', type=str, default='../data/datasets/WikiMovies-test.txt')
     parser.add_argument('--predictions', type=str, default='predictions.json')
     parser.add_argument('--top-k', type=int, default=None)
