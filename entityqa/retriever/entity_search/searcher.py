@@ -1,4 +1,5 @@
 import lucene
+import sys
 import os
 
 from java.nio.file import Paths
@@ -24,13 +25,13 @@ from kr.ac.korea.dmis.search import TopDocsE
 
 lucene.initVM(maxheap='4096m')
 
-# # for a filter term
-q = 'highest mountain #entity_type_id:5'
+q = sys.argv[1]
+
 field = 'content'
-index_dir = os.path.join('/media/donghyeonkim/'
-                         'f7c53837-2156-4793-b2b1-4b0578dffef1/entityqa',
-                         'index')
-hitsPerPage = 10
+index_dir = os.path.join(os.path.expanduser('~'),
+                         'github/entityqa/data/index')
+print(index_dir)
+hitsPerPage = int(sys.argv[2])
 
 reader = DirectoryReader.open(FSDirectory.open(Paths.get(index_dir)))
 searcher = IndexSearcherE(reader)
@@ -52,24 +53,25 @@ print("{} total matching entities ({} docs)".format(numTotalHits, numTotalDocs))
 
 start = 0
 end = min(numTotalHits, hitsPerPage)
+digit_entities = ['ORDINAL', 'CARDINAL', 'PERCENT', 'DATE', 'TIME', 'MONEY', 'QUANTITY', 'GPE', 'NORP']
 
 # entities
 for i in range(end):
 
-    sde = hitEntities[i]
-    assert ScoreDocE.instance_(sde)
-    sde = ScoreDocE.cast_(sde)
+    assert ScoreDocE.instance_(hitEntities[i])
 
+    sde = hitEntities[i]
+    sde = ScoreDocE.cast_(sde)
     entityDocs = searcher.search(
         TermQuery(Term("eid", str(sde.doc))), 1).scoreDocs
-    assert len(entityDocs) > 0
+    if len(entityDocs) > 0:
+        entityDoc = searcher.doc(entityDocs[0].doc)
+        if entityDoc.get("type") not in digit_entities:
+            print("entityDoc name={}\ttype={}\tscore={:.3f}".
+                  format(entityDoc.get("name"), entityDoc.get("type"), sde.score))
 
-    entityDoc = searcher.doc(entityDocs[0].doc)
-    print("entityDoc name={}\ttype={}\tscore={:.3f}".
-          format(entityDoc.get("name"), entityDoc.get("type"), sde.score))
-
-    docNum = sde.docNum
-    print("#paragraphs={}".format(docNum))
+            docNum = sde.docNum
+            # print("#paragraphs={}".format(docNum))
 
     # print(lucene.JArray('object').instance_(sde.docs, ScoreDoc))
 
@@ -78,9 +80,10 @@ for i in range(end):
     # for sd in docs:
     #     print("doc={}\tscore={}".format(sd.doc, sd.score))
 
-    print()
+    # print()
 
 # entity score weighted docs
 ewdoc_end = min(numTotalDocs, hitsPerPage)
 for i in range(ewdoc_end):
-    print(hitDocs[i])
+    # print(hitDocs[i])
+    pass
