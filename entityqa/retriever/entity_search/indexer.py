@@ -25,9 +25,12 @@ class Indexer(object):
     """Usage: python IndexFiles <doc_directory>"""
 
     def __init__(self, store_dir, analyzer, db_path):
+        self.write_type = True
+        self.spacy_number_types = ['DATE', 'CARDINAL', 'QUANTITY', 'MONEY',
+                                   'TIME', 'PERCENT', 'ORDINAL']
+
         if not os.path.exists(store_dir):
             os.mkdir(store_dir)
-
         store = SimpleFSDirectory(Paths.get(store_dir))
         config = IndexWriterConfig(analyzer)
         config.setOpenMode(IndexWriterConfig.OpenMode.CREATE)
@@ -37,16 +40,17 @@ class Indexer(object):
         self.wiki_db = DocDB(db_path=db_path)
 
         print('Getting docs..', db_path)
-        self.doc_ids = self.wiki_db.get_ner_doc_ids()
+        self.doc_ids = self.wiki_db.get_ner_doc_ids(limit=None)
         print('# wiki docs', len(self.doc_ids))
         assert len(self.doc_ids) == 5075182
 
         self.entity2idx = dict()
         self.idx2entity = dict()
-        self.entity2idx['UNK'] = 0
-        self.idx2entity[0] = 'UNK'
+        self.UNK = 'UNK'
+        self.entity2idx[self.UNK] = 0
+        self.idx2entity[self.entity2idx[self.UNK]] = self.UNK
         self.entitytype2idx = dict()
-        self.entitytype2idx['UNK'] = 0
+        self.entitytype2idx[self.UNK] = 0
         self.entity_dict = dict()
         self.num_entities_max = -1
         print('Init. Done')
@@ -61,6 +65,11 @@ class Indexer(object):
         t2_tk.setStored(True)
         t2_tk.setTokenized(True)
         t2_tk.setIndexOptions(IndexOptions.DOCS_AND_FREQS)
+
+        t3_tkfp = FieldType()
+        t3_tkfp.setStored(True)
+        t3_tkfp.setTokenized(True)
+        t3_tkfp.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS)
 
         bin_dv_ft = FieldType()
         bin_dv_ft.setDocValuesType(DocValuesType.BINARY)
@@ -90,25 +99,28 @@ class Indexer(object):
                     continue
 
                 lucene_doc = Document()
-                lucene_doc.add(Field("wiki_doc_id", doc_id, t2_tk))
+                lucene_doc.add(Field("wiki_doc_id", doc_id, t3_tkfp))
                 lucene_doc.add(Field("p_idx", str(p_idx), t1))
-                lucene_doc.add(Field("content", p_text, t2_tk))
+                lucene_doc.add(Field("content", p_text, t3_tkfp))
 
                 # Named-entities
                 ents = p['ents']
                 ent_set = set()
 
                 if len(ents) > 0:
-
-                    num_avg_entities += len(ents)
-
                     entity_idx_set = set()
                     entity_type_id_set = set()
                     entity_positions = list()
 
                     for entity in ents:
 
+                        # Filter number types
+                        if entity['label_'] in self.spacy_number_types:
+                            continue
+
                         assert 'label' in entity, 'doc_id={}'.format(doc_id)
+
+                        num_avg_entities += 1
 
                         entity_key = entity['text'] + '\t' + entity['label_']
 
@@ -157,7 +169,7 @@ class Indexer(object):
                 if self.num_entities_max < len(ent_set):
                     self.num_entities_max = len(ent_set)
 
-                binary = get_binary4dvs(ent_set)
+                binary = get_binary4dvs(ent_set, write_type=self.write_type)
 
                 # https://lucene.apache.org/pylucene/jcc/features.html
                 br = BytesRef(lucene.JArray('byte')(binary))
@@ -249,9 +261,12 @@ if __name__ == '__main__':
     # base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
     output_dir = os.path.join('/media/donghyeonkim/'
                               'f7c53837-2156-4793-b2b1-4b0578dffef1/entityqa',
-                              'index')
-    db_filepath = os.path.join(os.path.expanduser('~'), 'common',
-                               'wikipedia', 'docs.db')
+                              'index_180629')
+    # db_filepath = os.path.join(os.path.expanduser('~'), 'common',
+    #                            'wikipedia', 'docs.db')
+    db_filepath = os.path.join('/media/donghyeonkim/'
+                               'f7c53837-2156-4793-b2b1-4b0578dffef1/entityqa',
+                               'docs.db')
 
     lucene.initVM()
     print('lucene', lucene.VERSION)

@@ -87,11 +87,15 @@ class DocDB(object):
         cursor.close()
         return results
 
-    def get_ner_doc_ids(self):
+    def get_ner_doc_ids(self, limit=None):
         """Fetch all ids of docs stored in the db."""
         cursor = self.connection.cursor()
-        cursor.execute("SELECT id FROM documents WHERE {} IS NOT NULL".
-                       format(self.ner_col_name))
+
+        sql_state = "SELECT id FROM documents WHERE {} IS NOT NULL"\
+            .format(self.ner_col_name)
+        if limit is not None:
+            sql_state += " LIMIT {}".format(limit)
+        cursor.execute(sql_state)
         results = [r[0] for r in cursor.fetchall()]
         cursor.close()
         return results
