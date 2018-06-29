@@ -23,7 +23,7 @@ from kr.ac.korea.dmis.search import TopDocsE
 # https://github.com/apache/lucene-solr/blob/branch_6_5/lucene/demo/src/java/org/apache/lucene/demo/SearchFiles.java
 
 
-lucene.initVM(maxheap='4096m')
+lucene.initVM(maxheap='8192m')
 
 q = sys.argv[1]
 

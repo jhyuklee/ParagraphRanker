@@ -364,8 +364,8 @@ class DocReader(object):
 
             if not cands:
                 # try getting from globals? (multiprocessing in pipeline mode)
-                from root.retriever.doc_ranker import PROCESS_CANDS
-                cands = PROCESS_CANDS
+                from root.retriever.eval import PROCESS
+                cands = PROCESS['CANDS']
             if not cands:
                 raise RuntimeError('No candidates given.')
 
