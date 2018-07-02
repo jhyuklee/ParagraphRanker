@@ -85,26 +85,48 @@ class EntityRetriever(object):
                     })
                     docNum = sde.docNum
 
-        return entities, hitDocs
+        return hitDocs, entities
 
     def batch_closest_pars(self, queries, k, num_workers=None):
         # print('processing query', queries[0])
+        '''
         with ThreadPool(num_workers) as threads:
             closest_pars = partial(self.closest_pars, k)
             results = threads.map(closest_pars, queries)
-        return results
+        '''
+        
+        pars = []
+        ents = []
+        for query in queries:
+            par, ent = self.closest_pars(query, k)
+            pars += [par]
+            ents += [ent]
+        return pars , ents
+    
+    def get_texts(self, pars):
+        par_texts = []
+        q2pid = []
+        for i in range(len(pars)):
+            text = []
+            for j in range(len(pars[i])):
+                text += [retriever.searcher.doc(pars[i][j].doc).get('content')]
+            par_texts += text
+            # q2pid += 
+
+        return par_texts
 
 
 if __name__ == '__main__':
     index_dir = os.path.join(os.path.expanduser('~'),
                              'github/entityqa/data/index')
     retriever = EntityRetriever(index_dir)
-    ent, pars = retriever.closest_pars('mountain', 100)
-    print(ent)
-    print()
+    pars, ents = retriever.batch_closest_pars(['mountain', 'korea'], 100)
     print(pars)
     print()
-    real_doc = retriever.searcher.doc(pars[0].doc)
-    print(real_doc.get('content'))
+    print(ents)
     print()
+    real_doc = retriever.get_texts(pars)
+    # print(real_doc)
+    print('Number of pars: {}'.format(len(real_doc)))
+    print(real_doc[0])
 

@@ -192,13 +192,21 @@ class QAPipeline(object):
         logger.info('Processing %d queries...' % len(queries))
         logger.info('Retrieving top %d pars...' % n_pars)
 
-        ranked = self.retriever.batch_closest_docs(
+        pars, ents = self.retriever.batch_closest_pars(
             queries, k=n_pars, num_workers=self.num_workers
         )
-        all_parids, all_parmeta = zip(*ranked)
         
-        # TODO
-        # Fetch text of paragraphs based on par ids
+        # Retrieve texts
+        par_texts = []
+        for i in range(len(queries)):
+            text = []
+            for j in range(len(pars[i])):
+                text += [self.retriever.searcher.doc(pars[i][j].doc).get('content')]
+            par_texts += text
+
+        # Fetch text of queries
+        q_tokens = self.processes.map_async(tokenize_text, queries)
+        q_tokens = q_tokens.get()
 
         # Fetch text of queries
         q_tokens = self.processes.map_async(tokenize_text, queries)
