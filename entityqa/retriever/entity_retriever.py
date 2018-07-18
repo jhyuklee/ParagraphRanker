@@ -111,14 +111,13 @@ class EntityRetriever(object):
             for j in range(len(pars[i])):
                 text += [retriever.searcher.doc(pars[i][j].doc).get('content')]
             par_texts += text
-            # q2pid += 
 
         return par_texts
 
 
 if __name__ == '__main__':
     index_dir = os.path.join(os.path.expanduser('~'),
-                             'github/entityqa/data/index')
+                             'github/entityqa/data/index_180629')
     retriever = EntityRetriever(index_dir)
     pars, ents = retriever.batch_closest_pars(['mountain', 'korea'], 100)
     print(pars)

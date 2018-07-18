@@ -26,10 +26,11 @@ from kr.ac.korea.dmis.search import TopDocsE
 lucene.initVM(maxheap='8192m')
 
 q = sys.argv[1]
+q = '\"adolf hitler\" \"national museum\"'
 
 field = 'content'
 index_dir = os.path.join(os.path.expanduser('~'),
-                         'github/entityqa/data/index')
+                         'github/entityqa/data/index_180629')
 print(index_dir)
 hitsPerPage = int(sys.argv[2])
 
@@ -42,7 +43,7 @@ query = qparser.parse(q)
 
 print("Searching for:", query.toString(field))
 
-topdocs = searcher.searchE(query, 5 * hitsPerPage)
+topdocs = searcher.searchE(query, 5 * hitsPerPage, 'ent')
 topdocs = TopDocsE.cast_(topdocs)
 hitEntities = topdocs.scoreDocs
 hitDocs = topdocs.entityWeightedDocs
@@ -50,6 +51,8 @@ numTotalHits = topdocs.totalHits
 numTotalDocs = topdocs.totalDocs
 
 print("{} total matching entities ({} docs)".format(numTotalHits, numTotalDocs))
+
+# retriever.searcher.doc^(hitDocs[0]
 
 start = 0
 end = min(numTotalHits, hitsPerPage)
@@ -85,5 +88,5 @@ for i in range(end):
 # entity score weighted docs
 ewdoc_end = min(numTotalDocs, hitsPerPage)
 for i in range(ewdoc_end):
-    # print(hitDocs[i])
+    print(hitDocs[i])
     pass
