@@ -9,7 +9,7 @@ This is a PyTorch implementation of a paper [Ranking Paragraphs for Improving An
 ## Setups
 Follow datasets and enviromental setups described in the [DrQA repository](https://github.com/facebookresearch/DrQA).
 
-## Pretaining and Evaluation
+## Pretraining and Evaluation
 ```bash
 # Pretrain reader model
 $ python entityqa/reader/train.py
